@@ -749,6 +749,12 @@ class Vanilla extends FlagSection {
            all wild warp locations in logic unless the flag is set as (V!w).`,
     modes: '!',
   });
+
+  static readonly Quicksand = Vanilla.flag('Vq', {
+    name: 'Vanilla quicksand',
+    text: `By default, we remove the whirlpools in front of the desert cave,
+           pyramid, and crypt.  This flag restores them.`,
+  });
 }
 
 class Quality extends FlagSection {
@@ -1210,5 +1216,8 @@ export class FlagSet {
   }
   shouldUpdateHud(): boolean {
     return true;
+  }
+  removeDesertWhirlpools(): boolean {
+    return !this.check(Vanilla.Quicksand);
   }
 }
