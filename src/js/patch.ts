@@ -1,140 +1,57 @@
-import { Assembler } from './asm/assembler.js';
-import { Cpu } from './asm/cpu.js';
-import { Preprocessor } from './asm/preprocessor.js';
-import { TokenSource } from './asm/token.js';
-import { TokenStream } from './asm/tokenstream.js';
-import { Tokenizer } from './asm/tokenizer.js';
-import { crc32 } from './crc32.js';
-import { ProgressTracker, generate as generateDepgraph } from './depgraph.js';
-import { FetchReader } from './fetchreader.js';
-import { FlagSet } from './flagset.js';
-import { Graph } from './logic/graph.js';
-import { World } from './logic/world.js';
-import { compressMapData, moveScreensIntoExpandedRom } from './pass/compressmapdata.js';
-import { crumblingPlatforms } from './pass/crumblingplatforms.js';
-import { deterministic, deterministicPreParse } from './pass/deterministic.js';
-import { fixDialog } from './pass/fixdialog.js';
-import { fixEntranceTriggers } from './pass/fixentrancetriggers.js';
-import { fixMovementScripts } from './pass/fixmovementscripts.js';
-import { fixSkippableExits } from './pass/fixskippableexits.js';
-import { randomizeThunderWarp } from './pass/randomizethunderwarp.js';
-import { rescaleMonsters } from './pass/rescalemonsters.js';
-import { shuffleGoa } from './pass/shufflegoa.js';
-import { shuffleHouses } from './pass/shufflehouses.js';
-import { shuffleMazes } from './pass/shufflemazes.js';
-import { shuffleMimics } from './pass/shufflemimics.js';
-import { shuffleMonsterPositions } from './pass/shufflemonsterpositions.js';
-import { shuffleMonsters } from './pass/shufflemonsters.js';
-import { shufflePalettes } from './pass/shufflepalettes.js';
-import { shuffleTrades } from './pass/shuffletrades.js';
-import { standardMapEdits } from './pass/standardmapedits.js';
-import { toggleMaps } from './pass/togglemaps.js';
-import { unidentifiedItems } from './pass/unidentifieditems.js';
-import { misspell } from './pass/misspell.js';
-import { writeLocationsFromMeta } from './pass/writelocationsfrommeta.js';
-import { Random } from './random.js';
-import { Rom, ModuleId } from './rom.js';
-import { Area } from './rom/area.js';
-import { Location, Spawn } from './rom/location.js';
-import { fixTilesets } from './rom/screenfix.js';
-import { Shop, ShopType } from './rom/shop.js';
-import { Spoiler } from './rom/spoiler.js';
-import { hex, seq, watchArray } from './rom/util.js';
-import { DefaultMap } from './util.js';
-import * as version from './version.js';
-import { shuffleAreas } from './pass/shuffleareas.js';
-import { checkTriggers } from './pass/checktriggers.js';
-import { Sprite } from './characters.js';
+import { Assembler } from './asm/assembler';
+import { Cpu } from './asm/cpu';
+import { Preprocessor } from './asm/preprocessor';
+import { TokenSource } from './asm/token';
+import { TokenStream } from './asm/tokenstream';
+import { Tokenizer } from './asm/tokenizer';
+import { crc32 } from './crc32';
+import { FlagSet } from './flagset';
+import { Graph } from './logic/graph';
+import { World } from './logic/world';
+import { compressMapData, moveScreensIntoExpandedRom } from './pass/compressmapdata';
+import { crumblingPlatforms } from './pass/crumblingplatforms';
+import { deterministic, deterministicPreParse } from './pass/deterministic';
+import { fixDialog } from './pass/fixdialog';
+import { fixEntranceTriggers } from './pass/fixentrancetriggers';
+import { fixMovementScripts } from './pass/fixmovementscripts';
+import { fixSkippableExits } from './pass/fixskippableexits';
+import { randomizeThunderWarp } from './pass/randomizethunderwarp';
+import { rescaleMonsters } from './pass/rescalemonsters';
+import { shuffleGoa } from './pass/shufflegoa';
+import { shuffleHouses } from './pass/shufflehouses';
+import { shuffleMazes } from './pass/shufflemazes';
+import { shuffleMimics } from './pass/shufflemimics';
+import { shuffleMonsterPositions } from './pass/shufflemonsterpositions';
+import { shuffleMonsters } from './pass/shufflemonsters';
+import { shufflePalettes } from './pass/shufflepalettes';
+import { shuffleTrades } from './pass/shuffletrades';
+import { standardMapEdits } from './pass/standardmapedits';
+import { toggleMaps } from './pass/togglemaps';
+import { unidentifiedItems } from './pass/unidentifieditems';
+import { misspell } from './pass/misspell';
+import { writeLocationsFromMeta } from './pass/writelocationsfrommeta';
+import { Random } from './random';
+import { Rom, ModuleId } from './rom';
+import { Area } from './rom/area';
+import { Location, Spawn } from './rom/location';
+import { fixTilesets } from './rom/screenfix';
+import { Shop, ShopType } from './rom/shop';
+import { Spoiler } from './rom/spoiler';
+import { hex, seq, watchArray } from './rom/util';
+import { DefaultMap } from './util';
+import * as version from './version';
+import { shuffleAreas } from './pass/shuffleareas';
+import { checkTriggers } from './pass/checktriggers';
+import { Sprite } from './characters';
 
 const EXPAND_PRG: boolean = true;
 const ASM = ModuleId('asm');
 
-// (window as any).CaveShuffle = CaveShuffle;
-// function shuffleCave(seed: number, params: any, num = 1000) {
-//   for (let i = seed; i < seed + num; i++) {
-//     const s = new CaveShuffle({...params, tileset: (window as any).rom.metatilesets.cave}, i);
-//     s.minSpikes = 3;
-//     try {
-//       if (s.build()) {
-//         console.log(`seed ${i}:\n${s.grid.show()}\n${s.meta!.show()}`);
-//         return;
-//       } else {
-//         console.log(`fail:\n${s.grid.show()}`);
-//       }
-//     } catch (err) {
-//       console.error(err);
-//       console.log(`fail ${i}:\n${s.grid.show()}`);
-//     }
-//   }
-//   console.log(`fail`);
-// }
-
-// class ShimAssembler {
-//   pre: Preprocessor;
-//   exports = new Map<string, number>();
-
-//   constructor(code: string, file: string) {
-//     const asm = new Assembler(Cpu.P02);
-//     const toks = new TokenStream();
-//     toks.enter(new Tokenizer(code, file));
-//     this.pre = new Preprocessor(toks, asm);
-//     while (this.pre.next()) {}
-//   }
-
-//   assemble(code: string, file: string, rom: Uint8Array) {
-//     const asm = new Assembler(Cpu.P02);
-//     const toks = new TokenStream();
-//     toks.enter(new Tokenizer(code, file));
-//     const pre = new Preprocessor(toks, asm, this.pre);
-//     asm.tokens(pre);
-//     const link = new Linker();
-//     link.read(asm.module());
-//     link.link().addOffset(0x10).apply(rom);
-//     for (const [s, v] of link.exports()) {
-//       //if (!v.offset) throw new Error(`no offset: ${s}`);
-//       this.exports.set(s, v.offset ?? v.value);
-//     }
-//   }
-
-//   expand(s: string) {
-//     const v = this.exports.get(s);
-//     if (!v) throw new Error(`missing export: ${s}`);
-//     return v;
-//   }
-// }
-
-
-// TODO - to shuffle the monsters, we need to find the sprite palttes and
-// patterns for each monster.  Each location supports up to two matchups,
-// so can only support monsters that match.  Moreover, different monsters
-// seem to need to be in either slot 0 or 1.
-
-// Pull in all the patches we want to apply automatically.
-// TODO - make a debugger window for patches.
-// TODO - this needs to be a separate non-compiled file.
-export default ({
-  async apply(rom: Uint8Array, hash: {[key: string]: unknown}, path: string): Promise<Uint8Array> {
-    // Look for flag string and hash
-    let flags;
-    if (!hash.seed) {
-      // TODO - send in a hash object with get/set methods
-      hash.seed = parseSeed('').toString(16);
-      window.location.hash += '&seed=' + hash.seed;
-    }
-    if (hash.flags) {
-      flags = new FlagSet(String(hash.flags));
-    } else {
-      flags = new FlagSet('@Standard');
-    }
-    for (const key in hash) {
-      if (hash[key] === 'false') hash[key] = false;
-    }
-    const [result,] =
-        await shuffle(rom, parseSeed(String(hash.seed)),
-                      flags, new FetchReader(path));
-    return result;
-  },
-});
+// trivial interface for updating a progress bar.
+export interface ProgressTracker {
+  addTasks(tasks: number): void;
+  addCompleted(tasks: number): void;
+}
 
 export function parseSeed(seed: string): number {
   if (!seed) return Random.newSeed();
@@ -244,7 +161,7 @@ export async function shuffle(rom: Uint8Array,
         newRom[4] <<= 1;
         rom = newRom;
     }
-    
+
     const prg = rom.subarray(0x10);
     prg.subarray(0x7c000, 0x80000).set(prg.subarray(0x3c000, 0x40000));
   }
@@ -454,12 +371,12 @@ async function shuffleInternal(rom: Uint8Array,
     const toks = new TokenStream();
     toks.enter(TokenSource.concat(
         new Tokenizer(flagFile, 'flags.s'),
-        await tokenizer('../asm/init.s'),
-        await tokenizer('../asm/alloc.s'),
-        await tokenizer('../asm/stattracker.s'),
-        await tokenizer('../asm/preshuffle.s'),
-        await tokenizer('../asm/postparse.s'),
-        await tokenizer('../asm/postshuffle.s')));
+        await tokenizer('init.s'),
+        await tokenizer('alloc.s'),
+        await tokenizer('stattracker.s'),
+        await tokenizer('preshuffle.s'),
+        await tokenizer('postparse.s'),
+        await tokenizer('postshuffle.s')));
     const pre = new Preprocessor(toks, asm);
     asm.tokens(pre);
     return asm.module();
@@ -746,12 +663,15 @@ function buffDyna(rom: Rom, _flags: FlagSet): void {
 }
 
 function blackoutMode(rom: Rom) {
-  const dg = generateDepgraph();
-  for (const node of dg.nodes) {
-    const type = (node as any).type;
-    if (node.nodeType === 'Location' && (type === 'cave' || type === 'fortress')) {
-      rom.locations[(node as any).id].tilePalettes.fill(0x9a);
-    }
+  const indoors = new Set([
+    rom.metatilesets.cave.tilesetId,
+    rom.metatilesets.fortress.tilesetId,
+    rom.metatilesets.iceCave.tilesetId,
+    rom.metatilesets.labyrinth.tilesetId,
+    rom.metatilesets.pyramid.tilesetId,
+  ]);
+  for (const loc of rom.locations) {
+    if (indoors.has(loc.tileset)) loc.tilePatterns.fill(0x9a);
   }
 }
 

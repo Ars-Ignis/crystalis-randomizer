@@ -1,9 +1,9 @@
-import {Cpu} from './cpu.js';
-import {Expr} from './expr.js';
-import * as mod from './module.js';
-import {SourceInfo, Token, TokenSource} from './token.js';
-import {Tokenizer} from './tokenizer.js';
-import {assertNever} from '../util.js';
+import {Cpu} from './cpu';
+import {Expr} from './expr';
+import * as mod from './module';
+import {SourceInfo, Token, TokenSource} from './token';
+import {Tokenizer} from './tokenizer';
+import {assertNever} from '../util';
 
 type Chunk = mod.Chunk<number[]>;
 type Module = mod.Module;
@@ -30,6 +30,17 @@ class Symbol {
   ref?: {source?: SourceInfo}; // TODO - plumb this through
 }
 
+interface ResolveOpts {
+  // Whether to create a forward reference for missing symbols.
+  allowForwardRef?: boolean;
+  // Reference token.
+  ref?: {source?: SourceInfo};
+}
+
+interface FwdRefResolveOpts extends ResolveOpts {
+  allowForwardRef: true;
+}
+
 abstract class BaseScope {
   //closed = false;
   readonly symbols = new Map<string, Symbol>();
@@ -44,9 +55,11 @@ abstract class BaseScope {
   //   - shallow - don't recurse up the chain, for assignment only??
   // Might just mean allowForwardRef is actually just a mode string?
   //  * ca65's .definedsymbol is more permissive than .ifconst
-  resolve(name: string, allowForwardRef: true): Symbol;
-  resolve(name: string, allowForwardRef?: boolean): Symbol|undefined;
-  resolve(name: string, allowForwardRef?: boolean): Symbol|undefined {
+  resolve(name: string, opts: FwdRefResolveOpts): Symbol;
+  resolve(name: string, opts?: ResolveOpts): Symbol|undefined;
+  resolve(name: string, opts: ResolveOpts = {}):
+      Symbol|undefined {
+    const {allowForwardRef = false, ref} = opts;
     const [tail, scope] = this.pickScope(name);
     let sym = scope.symbols.get(tail);
 //console.log('resolve:',name,'sym=',sym,'fwd?',allowForwardRef);
@@ -60,7 +73,7 @@ abstract class BaseScope {
     //const symbol = {id: this.symbolArray.length};
 //console.log('created:',symbol);
     //this.symbolArray.push(symbol);
-    const symbol: Symbol = {};
+    const symbol: Symbol = {ref};
     scope.symbols.set(tail, symbol);
     if (tail !== name) symbol.scoped = true;
     return symbol;
@@ -163,6 +176,12 @@ export class Assembler {
   /** Map of chunk/offset positions of back-referable relative labels. */
   private relativeReverse: Expr[] = [];
 
+  /** List of global symbol indices used by forward refs to rts statements. */
+  private rtsRefsForward: number[] = [];
+
+  /** List of chunk/offset positions of back-referable rts statements. */
+  private rtsRefsReverse: Expr[] = [];
+
   /** All the chunks so far. */
   private chunks: Chunk[] = [];
 
@@ -208,7 +227,7 @@ export class Assembler {
     let scope: Scope|undefined = this.currentScope;
     const unscoped = !sym.includes('::');
     do {
-      const s = scope.resolve(sym, false);
+      const s = scope.resolve(sym, {allowForwardRef: false});
       if (s) return Boolean(s.expr);
     } while (unscoped && (scope = scope.parent));
     return false;
@@ -216,14 +235,14 @@ export class Assembler {
 
   constantSymbol(sym: string): boolean {
     // If there's a symbol in a different scope, it's not actually constant.
-    const s = this.currentScope.resolve(sym, false);
+    const s = this.currentScope.resolve(sym, {allowForwardRef: false});
     return Boolean(s && s.expr && !(s.id! < 0));
   }
 
   referencedSymbol(sym: string): boolean {
     // If not referenced in this scope, we don't know which it is...
     // NOTE: this is different from ca65.
-    const s = this.currentScope.resolve(sym, false);
+    const s = this.currentScope.resolve(sym, {allowForwardRef: false});
     return s != null; // NOTE: this counts definitions.
   }
 
@@ -248,43 +267,58 @@ export class Assembler {
   resolve(expr: Expr): Expr {
     return Expr.traverse(expr, (e, rec) => {
       while (e.op === 'sym' && e.sym) {
-        e = this.resolveSymbol(e.sym);
+        e = this.resolveSymbol(e);
       }
       return Expr.evaluate(rec(e));
     });
   }
 
-  resolveSymbol(name: string): Expr {
-    if (name === '*') {
+  resolveSymbol(symbol: Expr): Expr {
+    const name = symbol.sym!;
+    const parsed = parseSymbol(name);
+    if (parsed.type === 'pc') {
       return this.pc();
-    } else if (/^:\++$/.test(name)) {
+    } else if (parsed.type === 'anon' && parsed.num > 0) {
       // anonymous forward ref
-      const i = name.length - 2;
+      const i = parsed.num - 1;
       let num = this.anonymousForward[i];
       if (num != null) return {op: 'sym', num};
       this.anonymousForward[i] = num = this.symbols.length;
       this.symbols.push({id: num});
       return {op: 'sym', num};
-    } else if (/^\++$/.test(name)) {
+    } else if (parsed.type === 'rts' && parsed.num > 0) {
+      // rts forward ref
+      const i = parsed.num - 1;
+      let num = this.rtsRefsForward[i];
+      if (num != null) return {op: 'sym', num};
+      this.rtsRefsForward[i] = num = this.symbols.length;
+      this.symbols.push({id: num});
+      return {op: 'sym', num};
+    } else if (parsed.type === 'rel' && parsed.num > 0) {
       // relative forward ref
-      let num = this.relativeForward[name.length - 1];
+      let num = this.relativeForward[parsed.num - 1];
       if (num != null) return {op: 'sym', num};
       this.relativeForward[name.length - 1] = num = this.symbols.length;
       this.symbols.push({id: num});
       return {op: 'sym', num};
-    } else if (/^:-+$/.test(name)) {
+    } else if (parsed.type === 'anon' && parsed.num < 0) {
       // anonymous back ref
-      const i = this.anonymousReverse.length - name.length + 1;
+      const i = this.anonymousReverse.length + parsed.num;
       if (i < 0) this.fail(`Bad anonymous backref: ${name}`);
       return this.anonymousReverse[i];
-    } else if (/^-+$/.test(name)) {
+    } else if (parsed.type === 'rts' && parsed.num < 0) {
+      // rts back ref
+      const i = this.rtsRefsReverse.length + parsed.num;
+      if (i < 0) this.fail(`Bad rts backref: ${name}`);
+      return this.rtsRefsReverse[i];
+    } else if (parsed.type === 'rel' && parsed.num < 0) {
       // relative back ref
       const expr = this.relativeReverse[name.length - 1];
       if (expr == null) this.fail(`Bad relative backref: ${name}`);
       return expr;
     }
     const scope = name.startsWith('@') ? this.cheapLocals : this.currentScope;
-    const sym = scope.resolve(name, true);
+    const sym = scope.resolve(name, {allowForwardRef: true, ref: symbol});
     if (sym.expr) return sym.expr;
     // if the expression is not yet known then refer to the symbol table,
     // adding it if necessary.
@@ -316,7 +350,7 @@ export class Assembler {
         if (sym.expr || sym.id == null) continue;
         if (scope.parent) {
           // TODO - record where it was referenced?
-          if (sym.scoped) throw new Error(`Symbol '${name}' undefined`);
+          if (sym.scoped) throw new Error(`Symbol '${name}' undefined: ${Token.nameAt(sym.ref)}`);
           const parentSym = scope.parent.symbols.get(name);
           if (!parentSym) {
             // just alias it directly in the parent scope
@@ -362,7 +396,7 @@ export class Assembler {
     }
 
     for (const [name, sym] of this.currentScope.symbols) {
-      if (!sym.expr) throw new Error(`Symbol '${name}' undefined`);
+      if (!sym.expr) throw new Error(`Symbol '${name}' undefined: ${Token.nameAt(sym.ref)}`);
     }
   }
 
@@ -416,7 +450,6 @@ export class Assembler {
       this.line(line);
     }
   }
-
 
   directive(tokens: Token[]) {
     // TODO - record line information, rewrap error messages?
@@ -514,7 +547,7 @@ export class Assembler {
     // unclear whether we want to allow defining symbols in outside scopes:
     //   ::foo = 43
     // FWIW, ca65 _does_ allow this, as well as foo::bar = 42 after the scope.
-    let sym = scope.resolve(ident, !mut);
+    let sym = scope.resolve(ident, {allowForwardRef: !mut, ref: token});
     if (sym && (mut !== (sym.id! < 0))) {
       this.fail(`Cannot change mutability of ${ident}`, token);
     } else if (mut && expr.op != 'num') {
@@ -551,6 +584,14 @@ export class Assembler {
       [mnemonic, arg] = args as [string, Arg];
       if (!arg) arg = ['imp'];
       mnemonic = mnemonic.toLowerCase();
+    }
+    if (mnemonic === 'rts') {
+      // NOTE: we special-case this in both the tokenizer and here so that
+      // `rts:+` and `rts:-` work for pointing to an rts instruction.
+      const expr = this.pc();
+      this.rtsRefsReverse.push(expr);
+      const sym = this.rtsRefsForward.shift();
+      if (sym != null) this.symbols[sym].expr = expr;
     }
     // may need to size the arg, depending.
     // cpu will take 'add', 'a,x', and 'a,y' and indicate which it actually is.
@@ -685,6 +726,10 @@ export class Assembler {
   // Directive handlers
 
   org(addr: number, name?: string) {
+    if (this._org != null && this._chunk != null &&
+      this._org + this._chunk.data.length === addr) {
+      return; // nothing to do?
+    }
     this._org = addr;
     this._chunk = undefined;
     this._name = name;
@@ -928,6 +973,8 @@ export class Assembler {
     for (const term of Token.parseArgList(tokens, 1)) {
       if (allowString && term.length === 1 && term[0].token === 'str') {
         out.push(term[0].str);
+      } else if (term.length < 1) {
+        this.fail(`Missing term`);
       } else {
         out.push(this.resolve(Expr.parseOnly(term)));
       }
@@ -1036,4 +1083,21 @@ export namespace Assembler {
     allowBrackets?: boolean;
     reentrantScopes?: boolean;
   }
+}
+
+type ParsedSymbol = {type: 'pc'|'none'}|{type: 'anon'|'rel'|'rts', num: number};
+function parseSymbol(name: string): ParsedSymbol {
+  if (name === '*') return {type: 'pc'};
+
+  if (/^:\++$/.test(name)) return {type: 'anon', num: name.length - 1};
+  if (/^:\+\d+$/.test(name)) return {type: 'anon', num: parseInt(name.substring(2))};
+  if (/^:-+$/.test(name)) return {type: 'anon', num: 1 - name.length};
+  if (/^:-\d+$/.test(name)) return {type: 'anon', num: -parseInt(name.substring(2))};
+
+  if (/^:>*rts$/.test(name)) return {type: 'rts', num: Math.max(name.length - 4, 1)};
+  if (/^:<+rts$/.test(name)) return {type: 'rts', num: 4 - name.length};
+
+  if (/^\++$/.test(name)) return {type: 'rel', num: name.length};
+  if (/^-+$/.test(name)) return {type: 'rel', num: -name.length};
+  return {type: 'none'};
 }

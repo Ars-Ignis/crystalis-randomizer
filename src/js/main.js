@@ -1,12 +1,13 @@
-import * as patch from './patch.js';
-import * as render from './render.js';
-import * as version from './version.js';
-import {crc32} from './crc32.js';
-import {EXPECTED_CRC32} from './rom.js';
-import {FlagSet} from './flagset.js';
-import {ProgressTracker} from './progress.js';
-import {FetchReader} from './fetchreader.js';
-import { CharacterSet, Sprite, parseNssFile } from './characters.js';
+import * as patch from './patch';
+import * as render from './render';
+import * as version from './version';
+import {crc32} from './crc32';
+import {EXPECTED_CRC32} from './rom';
+import {FlagSet} from './flagset';
+import {ProgressTracker} from './progress';
+import {BundleReader} from './bundlereader';
+import {FetchReader} from './fetchreader';
+import { CharacterSet, Sprite, parseNssFile } from './characters';
 
 // global state
 let flags;
@@ -221,7 +222,7 @@ const shuffleRom = async (seed) => {
   try {
     [shuffled, crc] =
         await patch.shuffle(
-          orig, seed, flagsClone, new FetchReader(), [sprite], log, progressTracker);
+          orig, seed, flagsClone, new BundleReader(), [sprite], log, progressTracker);
   } catch (err) {
     document.body.classList.add('failure');
     const errorText = document.getElementById('error-text');

@@ -1,27 +1,27 @@
-import {Area} from '../spoiler/area.js';
-import {die} from '../assert.js';
-import {FlagSet} from '../flagset.js';
-import {Random} from '../random.js';
-import {Rom} from '../rom.js';
-import {Boss} from '../rom/bosses.js';
-import {Flag, Logic} from '../rom/flags.js';
-import {Item, ItemUse} from '../rom/item.js';
-import {Location, Spawn} from '../rom/location.js';
-import {LocalDialog, Npc} from '../rom/npc.js';
-import {ShopType} from '../rom/shop.js';
-import {hex, seq} from '../rom/util.js';
-import {UnionFind} from '../unionfind.js';
-import {DefaultMap, LabeledSet, iters, spread} from '../util.js';
-import {Dir} from './dir.js';
-import {ItemInfo, LocationList, SlotInfo} from './graph.js';
-import {Hitbox} from './hitbox.js';
-import {Condition, Requirement, Route} from './requirement.js';
-import {ScreenId} from './screenid.js';
-import {Terrain, Terrains} from './terrain.js';
-import {TileId} from './tileid.js';
-import {TilePair} from './tilepair.js';
-import {WallType} from './walltype.js';
-import { Monster } from '../rom/monster.js';
+import {Area} from '../spoiler/area';
+import {die} from '../assert';
+import {FlagSet} from '../flagset';
+import {Random} from '../random';
+import {Rom} from '../rom';
+import {Boss} from '../rom/bosses';
+import {Flag, Logic} from '../rom/flags';
+import {Item, ItemUse} from '../rom/item';
+import {Location, Spawn} from '../rom/location';
+import {LocalDialog, Npc} from '../rom/npc';
+import {ShopType} from '../rom/shop';
+import {hex, seq} from '../rom/util';
+import {UnionFind} from '../unionfind';
+import {DefaultMap, LabeledSet, iters, spread} from '../util';
+import {Dir} from './dir';
+import {ItemInfo, LocationList, SlotInfo} from './graph';
+import {Hitbox} from './hitbox';
+import {Condition, Requirement, Route} from './requirement';
+import {ScreenId} from './screenid';
+import {Terrain, Terrains} from './terrain';
+import {TileId} from './tileid';
+import {TilePair} from './tilepair';
+import {WallType} from './walltype';
+import { Monster } from '../rom/monster';
 
 const [] = [hex];
 
@@ -184,6 +184,7 @@ export class World {
         ShootingStatue, ShootingStatueSouth, StormBracelet,
         Sword, SwordOfFire, SwordOfThunder, SwordOfWater, SwordOfWind,
         TornadoBracelet, TravelSwamp, TriggerSkip,
+        UsedBowOfMoon, UsedBowOfSun,
         WildWarp,
       },
       items: {
@@ -194,6 +195,8 @@ export class World {
     const start = this.entrance(MezameShrine);
     const enterOak = this.entrance(Oak);
     this.addCheck([start], and(BowOfMoon, BowOfSun), [OpenedCrypt.id]);
+    this.addCheck([start], BowOfMoon.r, [UsedBowOfMoon.id]);
+    this.addCheck([start], BowOfSun.r, [UsedBowOfSun.id]);
     this.addCheck([start], and(AbleToRideDolphin, ShellFlute),
                   [CurrentlyRidingDolphin.id]);
     this.addCheck([enterOak], and(LeadingChild), [RescuedChild.id]);
@@ -1220,18 +1223,25 @@ export class World {
   processBoss(location: Location, spawn: Spawn) {
     // Bosses will clobber the entrance portion of all tiles on the screen,
     // and will also add their drop.
-    if (spawn.id === 0xc9 || spawn.id === 0xca) return; // statues
+    const {bosses} = this.rom;
+    const {Rage, StatueOfSun, StatueOfMoon} = bosses;
+    const isStatueOfMoon = spawn.id === 0xc9;
+    const isStatueOfSun = spawn.id === 0xca;
     const isRage = spawn.id === 0xc3;
     const boss =
-        isRage ? this.rom.bosses.Rage :
-        this.rom.bosses.fromLocation(location.id);
+        isRage ? Rage :
+        isStatueOfMoon ? StatueOfMoon :
+        isStatueOfSun ? StatueOfSun :
+        bosses.fromLocation(location.id);
     const tile = TileId.from(location, spawn);
     if (!boss || !boss.flag) throw new Error(`Bad boss at ${location.name}`);
     const screen = tile & ~0xff;
     const bossTerrain = this.terrainFactory.boss(boss.flag.id, isRage);
     const hitbox = seq(0xf0, (t: number) => (screen | t) as TileId);
     this.addTerrain(hitbox, bossTerrain);
-    this.addBossCheck(hitbox, boss);
+    if (!isStatueOfMoon && !isStatueOfSun) {
+      this.addBossCheck(hitbox, boss);
+    }
   }
 
   addBossCheck(hitbox: Hitbox, boss: Boss,

@@ -1,5 +1,5 @@
-import {Buffer} from './buffer.js';
-import {StringToken, Token, TokenSource} from './token.js';
+import {Buffer} from './buffer';
+import {StringToken, Token, TokenSource} from './token';
 
 export class Tokenizer implements TokenSource {
   readonly buffer: Buffer;
@@ -75,7 +75,7 @@ export class Tokenizer implements TokenSource {
       return this.strTok('ident');
     }
     if (this.buffer.token(/^\.[a-z]+/i)) return this.strTok('cs');
-    if (this.buffer.token(/^:(\++|-+)/)) return this.strTok('ident');
+    if (this.buffer.token(/^:([+-]\d+|[-+]+|<+rts|>*rts)/)) return this.strTok('ident');
     if (this.buffer.token(/^(:|\++|-+|&&?|\|\|?|[#*/,=~!^]|<[<>=]?|>[>=]?)/)) {
       return this.strTok('op');
     }
@@ -127,7 +127,7 @@ export class Tokenizer implements TokenSource {
 
 function parseHex(str: string): Token {
   if (!/^[0-9a-f]+$/i.test(str)) throw new Error(`Bad hex number: $${str}`);
-  return {token: 'num', num: Number.parseInt(str, 16)};
+  return {token: 'num', num: Number.parseInt(str, 16), width: Math.ceil(str.length / 2)};
 }
 
 function parseDec(str: string): Token {
@@ -142,7 +142,7 @@ function parseOct(str: string): Token {
 
 function parseBin(str: string): Token {
   if (!/^[01]+$/.test(str)) throw new Error(`Bad binary number: %${str}`);
-  return {token: 'num', num: Number.parseInt(str, 2)};
+  return {token: 'num', num: Number.parseInt(str, 2), width: Math.ceil(str.length / 8)};
 }
 
 export namespace Tokenizer {

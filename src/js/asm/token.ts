@@ -1,4 +1,4 @@
-import {assertNever} from '../util.js';
+import {assertNever} from '../util';
 
 export interface TokenSource {
   next(): Token[]|undefined;
@@ -75,6 +75,7 @@ export interface NumberToken {
   token: NumberTok;
   num: number;
   source?: SourceInfo;
+  width?: number; // number of bytes in literal
 }
 export interface NullaryToken {
   token: NullTok;
@@ -171,8 +172,10 @@ export namespace Token {
     // TODO - definition vs usage?
   }
 
-  export function nameAt(arg: Token): string {
-    return name(arg) + at(arg);
+  export function nameAt(arg: {source?: SourceInfo}|undefined): string {
+    if (!arg) return 'at unknown';
+    const token = arg as Token;
+    return (token.token ? name(token) : '') + at(arg);
   }
 
   export function expectEol(token: Token|undefined, name = 'end of line') {
