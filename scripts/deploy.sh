@@ -30,11 +30,20 @@ git clone --depth=1 -b gh-pages "git@github.com:$GITHUB_REPOSITORY" deploy
 
 # Just pull favicon straight from master...?
 if [ "$GITHUB_REF" = refs/heads/master ]; then
-  cp dist/favicon.ico "deploy/"
+  cp target/release/favicon.ico "deploy/"
 fi
 
 # If the branch exists, wipe it out.
 if [ -d "deploy/$dir" ]; then
+  # but first, make a note of its hash
+  prev=$(grep HASH "deploy/$dir/js/build_info.js")
+  prev=${prev#*: \'}
+  suffix=${prev#???????}
+  prev=${prev%$suffix}
+  if [ -d "deploy/sha/$prev" ]; then
+    perl -i -pe "print \"  'PREV': '$prev',\n\" if /\\}/;" \
+         target/release/js/build_info.js
+  fi
   rm -rf "deploy/$dir"
 fi
 
@@ -43,15 +52,16 @@ mkdir -p "deploy/$dir/view"
 mkdir -p "deploy/$dir/js/view"
 mkdir -p "deploy/$dir/css/view"
 mkdir -p "deploy/$dir/images/spritesheets"
-cp dist/js/*.js "deploy/$dir/js/"
-cp dist/css/*.css "deploy/$dir/css/"
-cp dist/css/view/*.css "deploy/$dir/css/view/"
-cp dist/images/*.png "deploy/$dir/images/"
-cp dist/images/spritesheets/*.nss "deploy/$dir/images/spritesheets/"
+cp target/build/build_info.js "deploy/$dir/js/"
+cp target/release/js/*.js "deploy/$dir/js/"
+cp target/release/css/*.css "deploy/$dir/css/"
+cp target/release/css/view/*.css "deploy/$dir/css/view/"
+cp target/release/images/*.png "deploy/$dir/images/"
+cp target/release/images/spritesheets/*.nss "deploy/$dir/images/spritesheets/"
 
 # Prepend the analytics tag to each .html file.
-for a in dist/*.html dist/view/*.html; do
-  cat dist/ga.tag ${a} >| "deploy/$dir/${a#dist/}"
+for a in target/release/*.html target/release/view/*.html; do
+  cat target/release/ga.tag ${a} >| "deploy/$dir/${a#target/release/}"
 done
 
 # Also make the minimum necessary dirs for permalinks
@@ -65,7 +75,7 @@ cat deploy/$dir/index.html >> deploy/$sha/index.html
 cat deploy/$dir/help.html >> deploy/$sha/help.html
 cp deploy/$dir/js/main.js deploy/$sha/js/
 cp deploy/$dir/js/build_info.js deploy/$sha/js/
-cp deploy/$dir/js/chunk-*.js deploy/$sha/js/
+cp deploy/$dir/js/*-????????.js deploy/$sha/js/
 cp deploy/$dir/css/main.css deploy/$sha/css/main.css
 scripts/dedupe.sh deploy/$sha deploy/sha/files
 

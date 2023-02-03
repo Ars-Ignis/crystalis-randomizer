@@ -1,6 +1,7 @@
 import { Assembler } from './asm/assembler';
 import { Cpu } from './asm/cpu';
 import { Preprocessor } from './asm/preprocessor';
+import { smudge } from './asm/smudge';
 import { TokenSource } from './asm/token';
 import { TokenStream } from './asm/tokenstream';
 import { Tokenizer } from './asm/tokenizer';
@@ -38,6 +39,7 @@ import { fixTilesets } from './rom/screenfix';
 import { Shop, ShopType } from './rom/shop';
 import { Spoiler } from './rom/spoiler';
 import { hex, seq, watchArray } from './rom/util';
+import { sources } from './data';
 import { DefaultMap } from './util';
 import * as version from './version';
 import { shuffleAreas } from './pass/shuffleareas';
@@ -57,14 +59,6 @@ export function parseSeed(seed: string): number {
   if (!seed) return Random.newSeed();
   if (/^[0-9a-f]{1,8}$/i.test(seed)) return Number.parseInt(seed, 16);
   return crc32(seed);
-}
-
-/**
- * Abstract out File I/O.  Node and browser will have completely
- * different implementations.
- */
-export interface Reader {
-  read(filename: string): Promise<string>;
 }
 
 // prevent unused errors about watchArray - it's used for debugging.
@@ -142,7 +136,6 @@ function patchGraphics(rom: Uint8Array, sprites: Sprite[]) {
 export async function shuffle(rom: Uint8Array,
                               seed: number,
                               originalFlags: FlagSet,
-                              reader: Reader,
                               spriteReplacements?: Sprite[],
                               log?: {spoiler?: Spoiler},
                               progress?: ProgressTracker,
@@ -163,8 +156,12 @@ export async function shuffle(rom: Uint8Array,
     }
 
     const prg = rom.subarray(0x10);
+    // const src = smudge(await reader.read('crystalis.s'), Cpu.P02, prg);
+    // const assembled = Linker.assemble(src);
+    // prg.subarray(0, assembled.length).set(assembled);
     prg.subarray(0x7c000, 0x80000).set(prg.subarray(0x3c000, 0x40000));
   }
+  const origPrg = rom.slice(0x10); // do this before any mutation
 
   deterministicPreParse(rom.subarray(0x10)); // TODO - trainer...
 
@@ -177,7 +174,7 @@ export async function shuffle(rom: Uint8Array,
   const attemptErrors = [];
   for (let i = 0; i < 5; i++) { // for now, we'll try 5 attempts
     try {
-      return await shuffleInternal(rom, originalFlags, seed, random, reader, log, progress, sprites);
+      return await shuffleInternal(rom, originalFlags, seed, random, log, progress, sprites, origPrg);
     } catch (error) {
       attemptErrors.push(error);
       console.error(`Attempt ${i + 1} failed: ${error.stack}`);
@@ -190,10 +187,10 @@ async function shuffleInternal(rom: Uint8Array,
                                originalFlags: FlagSet,
                                originalSeed: number,
                                random: Random,
-                               reader: Reader,
                                log: {spoiler?: Spoiler}|undefined,
                                progress: ProgressTracker|undefined,
                                spriteReplacements: Sprite[],
+                               origPrg: Uint8Array,
                               ): Promise<readonly [Uint8Array, number]>  {
   const originalFlagString = String(originalFlags);
   const flags = originalFlags.filterRandom(random);
@@ -361,22 +358,16 @@ async function shuffleInternal(rom: Uint8Array,
   // file that runs afterwards all on its own.
 
   async function asm(pass: 'early' | 'late') {
-    async function tokenizer(path: string) {
-      return new Tokenizer(await reader.read(path), path,
-                           {lineContinuations: true});
-    }
-
     const flagFile = defines(flags, pass);
     const asm = new Assembler(Cpu.P02);
     const toks = new TokenStream();
     toks.enter(TokenSource.concat(
         new Tokenizer(flagFile, 'flags.s'),
-        await tokenizer('init.s'),
-        await tokenizer('alloc.s'),
-        await tokenizer('stattracker.s'),
-        await tokenizer('preshuffle.s'),
-        await tokenizer('postparse.s'),
-        await tokenizer('postshuffle.s')));
+        ...sources()
+            .map(({filename, contents}) => new Tokenizer(
+                smudge(contents, Cpu.P02, origPrg),
+                filename,
+                {lineContinuations: true}))));
     const pre = new Preprocessor(toks, asm);
     asm.tokens(pre);
     return asm.module();
@@ -596,7 +587,7 @@ function noMusic(rom: Rom): void {
   }
 }
 
-function shuffleMusic(rom: Rom, flags: FlagSet, random: Random): void {
+function shuffleMusic(rom: Rom, _flags: FlagSet, random: Random): void {
   interface HasMusic { bgm: number; }
   const musics = new DefaultMap<unknown, HasMusic[]>(() => []);
   const all = new Set<number>();
@@ -671,7 +662,7 @@ function blackoutMode(rom: Rom) {
     rom.metatilesets.pyramid.tilesetId,
   ]);
   for (const loc of rom.locations) {
-    if (indoors.has(loc.tileset)) loc.tilePatterns.fill(0x9a);
+    if (indoors.has(loc.tileset)) loc.tilePalettes.fill(0x9a);
   }
 }
 

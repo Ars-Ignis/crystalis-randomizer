@@ -1,9 +1,8 @@
 import * as patch from '../patch';
-import {FetchReader} from '../fetchreader';
-import {FlagSet} from '../flagset';
-import {prepareScreens} from '../pass/shufflemazes';
-import {Random} from '../random';
-import {Rom} from '../rom';
+import { FlagSet } from '../flagset';
+import { prepareScreens } from '../pass/shufflemazes';
+import { Random } from '../random';
+import { Rom } from '../rom';
 
 export async function loadRom() {
   const hash = new Map(location.hash.replace(/^#/, '').split('&').map(term => {
@@ -18,7 +17,7 @@ export async function loadRom() {
     const seedStr = hash.get('seed') ?? Math.floor(Math.random() * 0x100000000).toString(16);
     const seed = patch.parseSeed(seedStr);
     const romData = await Rom.loadBytes();
-    await patch.shuffle(romData, seed, flags, new FetchReader('../js/'));
+    await patch.shuffle(romData, seed, flags);
     return window.rom;
   } else {
     const rom = await Rom.load();

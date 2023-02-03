@@ -1,12 +1,10 @@
 import * as patch from './patch';
 import * as render from './render';
 import * as version from './version';
-import {crc32} from './crc32';
-import {EXPECTED_CRC32} from './rom';
-import {FlagSet} from './flagset';
-import {ProgressTracker} from './progress';
-import {BundleReader} from './bundlereader';
-import {FetchReader} from './fetchreader';
+import { crc32 } from './crc32';
+import { EXPECTED_CRC32 } from './rom';
+import { FlagSet } from './flagset';
+import { ProgressTracker } from './progress';
 import { CharacterSet, Sprite, parseNssFile } from './characters';
 
 // global state
@@ -107,6 +105,15 @@ const initVersion = () => {
       span.textContent =
           `${prefix}${version.LABEL} (${version.DATE.toDateString()})`;
     }
+  }
+  if (version.PREV) {
+    // This is pretty hacky.
+    const nav = document.querySelector('nav');
+    const prev = document.createElement('a');
+    prev.textContent = 'Older';
+    prev.href = `/sha/${version.PREV}`;
+    prev.style.float = 'right';
+    nav.appendChild(prev);
   }
   document.body.classList.add('js-works');
   document.body.classList.remove('js-broken');
@@ -222,7 +229,7 @@ const shuffleRom = async (seed) => {
   try {
     [shuffled, crc] =
         await patch.shuffle(
-          orig, seed, flagsClone, new BundleReader(), [sprite], log, progressTracker);
+          orig, seed, flagsClone, [sprite], log, progressTracker);
   } catch (err) {
     document.body.classList.add('failure');
     const errorText = document.getElementById('error-text');
