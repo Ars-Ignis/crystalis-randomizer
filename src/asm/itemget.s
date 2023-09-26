@@ -55,7 +55,7 @@ FREE_UNTIL $85de  ; ~24 bytes
 
 
 ;; Replace ItemGet with an extra indirection
-.org $826f
+.org $826f ; ItemGet
   jsr PatchStartItemGet
 
 .org $8285
@@ -64,14 +64,12 @@ FREE_UNTIL $85de  ; ~24 bytes
 
 ;; Patches to ItemGet to update the dedicated flag and
 ;; leave room for calling the difficulty methods
-.org $8287
-  jsr ItemGet_PickSlotAndAdd
-
 .org $8297
   jmp ItemGetFollowup
 FREE_UNTIL $829e  ; ~4 bytes
 
 .org $829e
+OVERRIDE
 ItemGet_PickSlotAndAdd:  ; move this up a few bytes
   sty $62
 .assert * = $82a0
@@ -106,6 +104,147 @@ FREE_UNTIL $8308
 ;;; at $9daf (y=$49).
 OriginalItemGetTable = $9d66
 
+.ifdef _OOPS_ALL_MIMICS
+
+; ObjectData_Mimic:                                         ; Object 73
+;         .byte $00
+;         .byte $ff,$aa,$40,$02,$00,$09,$31,$2d,$33
+;         .byte $ff,$00,$88,$00,$06,$00,$2b,$00,$00
+;         .byte $f0,$f5,$7e,$00,$01
+;         .byte $80,$20
+
+; Custom ItemGet to replace the function with spawning a mimic
+.reloc
+PatchStartItemGet:
+  ; Check to see if we are opening a chest or getting an item from a person.
+  ; A chest uses the metasprite $aa so check for that
+  ; A mimic also uses $aa, but when this will be called later to give the item
+  ; the mimic will already be dead, and the metasprite will be $90
+  ldy $0623
+  lda $0300,y
+  cmp #$aa
+  bne @NotAMimicOrChest
+    lda $06c0,y
+    cmp #DEAD_MIMIC
+    beq @NotAMimicOrChest
+    cmp #INSECT_MIMIC
+    bne + ; not the insect chest so skip reseting the screen
+      ; if this is the insect mimic, we need to work around the screen scroll still
+      ; being in the wrong state until the chest grab animation is finished.
+      lda #0 ; SCREEN_MODE_NORMAL
+      sta ScreenMode
+    +
+    jmp MimicOrChest
+@NotAMimicOrChest: ; Just a person so load the item and return
+  lda $23
+  sta $61fe
+  tax
+  lda CheckToItemGetMap,x
+  tay
+  .import itemGet_getToItemThreshold
+  cmp #itemGet_getToItemThreshold
+  bcc +
+   lda OriginalItemGetTable,y  ; NOTE: y>=$49, so this is really [$9daf...)
++ sta $29
+  sta $07dc   ; TODO - can we ditch the table at 3d45c now?
+.ifdef _STATS_TRACKING
+  jmp CheckForStatTrackedItems
+.else
+  rts         ;      - what about other writes to 07dc?
+.endif ; _STATS_TRACKING
+
+DEAD_MIMIC = $FF
+INSECT_MIMIC = $FE
+
+.reloc
+MimicOrChest:
+  ; they just touched the chest for the first time so spawn a mimic
+  lda $23
+  sta $61fe
+  tax
+  lda CheckToItemGetMap,x
+  tay
+  cmp #$70
+  bcc @ConvertChestToMimic
+    ; Mimics are the 16 objects from $70 to $80, so use the Powers of Two lookup to convert from the mimic to
+    ; a mask for the byte. $70-$77 in the lo byte $78-$7f in hi
+.ifdef _STATS_TRACKING
+    cmp #$78
+    bcc +
+      sec
+      sbc #$78
+      tay
+      lda PowersOfTwo,y
+      ora StatsMimicsHi
+      sta StatsMimicsHi
+      bcs @SkipToSpawnMimic ; unconditional
++   sec
+    sbc #$70
+    tay
+    lda PowersOfTwo,y
+    ora StatsMimicsLo
+    sta StatsMimicsLo
+.endif
+   ;; spawn regular mimic instead - need to back out of 3 layers of calls
+@SkipToSpawnMimic:
+    jsr SpawnMimic
+    bne @PatchResistance ;unconditional
+@ConvertChestToMimic:
+  ; Since this is just a regular item, we will instead spawn a custom mimic
+  ; that drops the item on death
+  jsr SpawnMimic
+  ; x is the current mimic index
+  ldx $10
+  ; store the item to give in the field $06a0 which holds items for NPC Persons
+  lda $61fe
+  sta $06a0,x
+  ; write a sentinel value to use to indicate this chest is a dead mimic
+  lda #DEAD_MIMIC
+  sta $06c0,x
+  ; force the mimic to drop a new chest
+  lda #$0d
+  sta $04c0,x
+@PatchResistance:
+  ldx $10
+  ; prevent the mimics from being unkillable my making them weak to all swords
+  lda ObjectElementalDefense,x
+  and #$f0
+  sta ObjectElementalDefense,x
+  ; We've gotta jump out of 3 callstacks here since we always spawn a mimic now
+  pla
+  pla
+  pla
+  pla
+  pla
+  pla
+  rts
+
+.pushseg "1a", "fe", "ff"
+.org $9167 ; ReplaceObject
+  jsr ReplaceObjectAndPatchChest
+.reloc
+ReplaceObjectAndPatchChest:
+  ; a - ObjectReplacement; y - object index
+  cmp #$0d ; ObjectChest - if we are about to drop a chest
+  bne @Exit
+    ; AND we have the sentinel data to signify its from a dead mimic
+    lda $06c0, y
+    cmp #DEAD_MIMIC
+    bne @Exit
+      ; after loading the replacement we want to copy over the item
+      lda $06a0, y
+      pha
+        jsr $ff80 ; LoadOneObjectData
+      pla
+      sta $0560, y
+      lda #DEAD_MIMIC
+      sta $06c0, y
+      rts
+@Exit:
+  jmp $ff80 ; LoadOneObjectData
+.popseg
+
+.else
 .reloc
 PatchStartItemGet:
   lda $23
@@ -145,7 +284,8 @@ PatchStartItemGet:
     pla
     jmp SpawnMimic
 @RegularItem:
-  cmp #$49
+  .import itemGet_getToItemThreshold
+  cmp #itemGet_getToItemThreshold
   bcc +
    lda OriginalItemGetTable,y  ; NOTE: y>=$49, so this is really [$9daf...)
 + sta $29
@@ -155,7 +295,8 @@ PatchStartItemGet:
 .else
   rts         ;      - what about other writes to 07dc?
 .endif ; _STATS_TRACKING
-;; TODO - why is this here?
+
+.endif ; _OOPS_ALL_MIMICS
 
 .org $d3f6              ; Within game mode jump 07 (trigger / chest)
   ;; This is only a minor optimization to skip the 4 nops we add below
@@ -180,8 +321,8 @@ ShowTreasureChestMessage = $d41c
   ;; skip these bytes
 FREE_UNTIL $d41c
 
-.org $d47c ; HandleTreasureChest_TooManyItems
-HandleTreasureChest_TooManyItems:
+.org $d47c
+.assert * = HandleTreasureChest_TooManyItems
   ;; Rather than using the global timer to determine whether
   ;; to show the "too many items" message, use the gamepad:
   ;; only show if pressing a direction ($49 != #$ff)
@@ -281,7 +422,6 @@ ItemGet_FindOpenSlotWithOverflow:
 ;;; .org $7d3fd
 ;;;   .byte $b0
 
-
 .segment "fe", "ff"
 
 
@@ -317,7 +457,7 @@ ReloadLocationGraphicsAfterChest:
 ;;; want to change how it behaves by bailing out if the item is
 ;;; already owned.
 .org $d22b
-GrantItemInRegisterA:
+.assert * = GrantItemInRegisterA
   jsr @PatchGrantItemInRegisterA
 
 .reloc

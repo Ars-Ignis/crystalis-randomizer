@@ -6,6 +6,9 @@ import {hex} from '../rom/util';
 import {Keyed, ArrayMap, MutableArrayBiMap, iters, spread} from '../util';
 import {die} from '../assert';
 
+const SLOT_TEMPERATURE = 2;
+const ITEM_TEMPERATURE = 2;
+
 /** Input for the graph. */
 export interface LocationList {
   worldName: string;
@@ -50,6 +53,8 @@ export interface SlotInfo {
    * could just avoid ever placing mimics in these areas?
    */
   weight?: number;
+  /** Whether slot is currently broken */
+  broken?: boolean;
 }
 
 export type SlotIndex = number & {__slotIndex__: never};
@@ -80,6 +85,7 @@ export class Graph {
   /** Bitsets keyed by ItemIndex, represent a DNF condition. */
   readonly graph: Keyed<SlotIndex, readonly Bits[]>;
   readonly unlocks: Keyed<ItemIndex, readonly SlotIndex[]>;
+  private lastFailure = '';
 
   constructor(private readonly worlds: readonly LocationList[]) {
     //const reverseWorlds = new Map<LocationList, number>();
@@ -172,28 +178,116 @@ export class Graph {
     this.unlocks = new Keyed(unlocks.map(spread));
   }
 
+  /**
+   * Do one or more samples of an arbitrary-ordered item pickup to
+   * measure roughly the weight of each item and slot.
+   */
+  computeWeights(random = new Random(), traverses = 1): Weights {
+    const itemWeights = Array.from({length: this.items.length}, () => 0);
+    const slotWeights = Array.from({length: this.slots.length}, () => 0);
+    const progressionItems = [];
+    for (const [index, id] of this.items) {
+      if (id >= 0x200 && id < 0x280 && this.progression.has(id)) progressionItems.push(index);
+    }
+    for (let i = 0; i < traverses; i++) {
+      const items = random.shuffle([...progressionItems]);
+      let has = Bits.of();
+      let reachable = this.traverse(() => undefined, has); //(c) => c <= this.common ? c as any : undefined, has);
+      let step = 0;
+      for (const item of items) {
+        step++;
+        has = Bits.with(has, item);
+        const newReachable = this.traverse(() => undefined, has); //(c) => c <= this.common ? c as any : undefined, has);
+        let newCount = 0;
+        for (const slot of newReachable) {
+          if (reachable.has(slot)) continue;
+          slotWeights[slot] += step;
+          newCount++;
+        }
+        itemWeights[item] += newCount;
+        reachable = newReachable;
+      }
+    }
+    return {
+      items: new Keyed(itemWeights.map(x => x / traverses)),
+      slots: new Keyed(slotWeights.map(x => x / traverses)),
+    };
+  }
+
+  reportWeights() {
+    const weights = this.computeWeights(new Random(), 10);
+    const itemWeights = weights.items.map((w, i) => [i, w] as [ItemIndex, number]);
+    const slotWeights = weights.slots.map((w, i) => [i, w] as [SlotIndex, number]);
+    function itemName(id: number) {
+      const rom = (globalThis as any).rom;
+      if ((id & ~0xff) === 0x200 && rom && rom.items[id & 0xff]) {
+        return rom.items[id & 0xff].messageName;
+      }
+      return `$${id.toString(16).padStart(2, '0')}`;
+    }
+    itemWeights.sort((a, b) => b[1] - a[1]);
+    slotWeights.sort((a, b) => b[1] - a[1]);
+    for (const [index, weight] of itemWeights) {
+      //if (index < this.common) continue;
+      const id = this.items.get(index as ItemIndex)!;
+      if (!this.itemInfos.has(id)) continue;
+      if (!this.progression.has(id)) continue;
+      console.log(`Item ${itemName(id)}: ${weight}`);
+    }
+    for (const [index, weight] of slotWeights) {
+      //if (index < this.common) continue;
+      const id = this.slots.get(index as SlotIndex)!;
+      if (!this.slotInfos.has(id)) continue;
+      console.log(`Slot ${this.checkName(id)}: ${weight}`);
+    }
+  }
+
   async shuffle(flagset: FlagSet,
                 random: Random,
                 attempts = 200, // 0
                 progress?: ProgressTracker,
                 spoiler?: Spoiler): Promise<Map<SlotId, ItemId>|null> {
+    (globalThis as any).graph = this;
     if (progress) progress.addTasks(Math.floor(attempts / 10));
+    const weights = this.computeWeights(random, 1); // 1000);
+    // const itemWeights = new Map(weights.items.map((w, i) => [i, w] as [ItemIndex, number]));
+    // const slotWeights = new Map(weights.slots.map((w, i) => [i, w] as [SlotIndex, number]));
+ATTEMPT:
     for (let attempt = 0; attempt < attempts; attempt++) {
+      this.lastFailure = '';
       if (progress && (attempt % 10 === 9)) {
-        progress.addCompleted(1);
-        await new Promise(requestAnimationFrame);
+        progress.addCompleted(1); 
+        await new Promise(requestAnimationFrame); // this probably shouldn't be rAF
       }
       const fill = new MutableArrayBiMap<SlotId, ItemId>();
       this.prefill(fill, random);
       const indexFill = this.compressFill(fill);
-      const items = this.itemPool(indexFill.values(), random);
+      const items = [...random.ishuffleMetropolis(this.itemPool(indexFill.values(), weights), ITEM_TEMPERATURE)].reverse();
       let has = Bits.from(new Set(items));
       const backtracks = Math.floor(attempt / 5);
-      if (!this.fillInternal(indexFill, items, has, random, flagset, backtracks)) {
+      if (!this.fillInternal(indexFill, items, has, random, weights, flagset, backtracks)) {
         continue;
       }
       const path: number[][]|undefined = spoiler ? [] : undefined;
       const final = this.traverse(i => indexFill.get(i), Bits.of(), path);
+      // Make an effort to bury flight.
+      const sphereAnalysis = this.analyzeSpheres(i => indexFill.get(i));
+      const targetFlightSphere = flagset.buryFlightStartSphere() - attempt / 4
+      for (const [id,, sphere] of sphereAnalysis) {
+        if (id === 0x248 && sphere < targetFlightSphere) continue ATTEMPT;
+      }
+      // for (const [, item, sphere, check] of sphereAnalysis) {
+      //   if ('document' in globalThis) {
+      //     console.log(`${item}: ${sphere} (${check})`);
+      //   }
+      // }
+      // if ('sphereAnalysis' in globalThis) {
+      //   for (const [, item, sphere] of sphereAnalysis) {
+      //     const stats = (globalThis as any).sphereAnalysis.get(item) || [];
+      //     (globalThis as any).sphereAnalysis.set(item, stats);
+      //     stats[sphere] = (stats[sphere] || 0) + 1;
+      //   }
+      // }
       // TODO - flags to loosen this requirement (before logging)???
       //      - but it's also a useful diagnostic.
       if (final.size !== this.slots.length) {
@@ -225,6 +319,7 @@ export class Graph {
                           .map(k => k + missingMap.get(k)!).join('\n  ')}`);
                       // }\nUnavailable items:\n  ${notHas.join('\n  ')}`);
                       // final, this);
+        this.lastFailure = `unreachable slots?`;
         continue;
       }
       this.expandFill(indexFill, fill);
@@ -251,13 +346,15 @@ export class Graph {
       }
       return out;
     }
-    return null;
+    throw new Error(`Shuffle failed: ${this.lastFailure || 'unknown error'}`);
+    //return null;
   }
 
   private fillInternal(fill: MutableArrayBiMap<SlotIndex, ItemIndex>,
                        items: ItemIndex[],
                        has: Bits,
                        random: Random,
+                       weights: Weights,
                        flagset: FlagSet,
                        backsteps: number): boolean {
     const fixed = new Set(fill.keys());
@@ -265,17 +362,25 @@ export class Graph {
       if (!Bits.has(has, bit)) continue; // item already placed: skip
       const itemInfo = this.itemInfoFromIndex(bit);
       has = Bits.without(has, bit);
-      const reachable =
-          this.expandReachable(this.traverse(i => fill.get(i), has),
-                               flagset);
-      random.shuffle(reachable);
+      // const reachable =
+      //     this.expandReachable(this.traverse(i => fill.get(i), has),
+      //                          flagset);
+      // arr.sort((a, b) => b[0] - a[0]);
+      // random.shuffle(reachable);
+      const reachable = [...this.traverse(i => fill.get(i), has)].map(i => [weights.slots.get(i) || 0, i] as [number, SlotIndex]);
+
       let found = false;
       const checked = new Set(fill.keys());
-      for (const slot of reachable) {
+      // Increase the temperature with more backsteps
+      for (const slot of random.ishuffleMetropolis(reachable, (SLOT_TEMPERATURE + backsteps) * (backsteps + 1))) {
         if (checked.has(slot)) continue;
         checked.add(slot);
         const slotInfo = this.slotInfoFromIndex(slot);
-        if (!slotInfo || !this.fits(slotInfo, itemInfo, flagset)) continue;
+        if (!slotInfo ||
+            flagset.preserveUniqueChecks() && !slotInfo.unique ||
+            !this.fits(slotInfo, itemInfo, flagset)) {
+          continue;
+        }
         fill.set(slot, bit);
         found = true;
         break;
@@ -284,7 +389,7 @@ export class Graph {
       checked.clear();
       if (backsteps-- > 0) {
         // take a back-step
-        for (const slot of reachable) {
+        for (const slot of random.ishuffleMetropolis(reachable, 100)) {
           if (checked.has(slot) || !fill.has(slot) || fixed.has(slot)) continue;
           checked.add(slot);
           const slotInfo = this.slotInfoFromIndex(slot);
@@ -303,36 +408,25 @@ export class Graph {
       // console.log(`Pool:\n  ${items.map(ni).join('\n  ')}`);
       // console.log(`Fill:\n  ${[...fill].map(([s,i]) => `${ns(s)}: ${ni(i)}`).join('\n  ')}`);
       // console.error(`REROLL: Could not place item index ${bit}: ${ni(bit)}`);
+      this.lastFailure = `could not place ${this.checkName(this.items.get(bit)!)
+          }, ${items.filter(i => Bits.has(has, i)).length} remaining`;
       return false;
     }
     return true;
   }
 
-  // adds weights
-  private expandReachable(slots: Iterable<SlotIndex>,
-                          flagset: FlagSet): SlotIndex[] {
-    const out: SlotIndex[] = [];
-    for (const slot of slots) {
-      const info = this.slotInfoFromIndex(slot);
-      // don't bother with non-unique slots at this stage.
-      if (!info || flagset.preserveUniqueChecks() && !info.unique) continue;
-      addCopies(out, slot, info.weight || 1);
-    }
-    return out;
-  }
-
-  private itemPool(exclude: Iterable<ItemIndex>, random: Random): ItemIndex[] {
+  private itemPool(exclude: Iterable<ItemIndex>, weights: Weights): [number, ItemIndex][] {
     const excludeSet = new Set(exclude);
-    const arr: ItemIndex[] = [];
-    for (const [id, info] of this.itemInfos) {
+    const arr: [number, ItemIndex][] = [];
+    for (const [id] of this.itemInfos) {
       const index = this.items.index(id);
       // skip non-progression and already-placed items
       if (index == null) continue;
       if (!this.progression.has(id)) continue;
       if (excludeSet.has(index)) continue;
-      addCopies(arr, index, info.weight || 1);
+      arr.push([weights.items.get(index) || 0, index]);
     }
-    return random.shuffle(arr);
+    return arr;
   }
 
   // TODO - instead of plumbing the flagset through here, consider
@@ -344,6 +438,7 @@ export class Graph {
         item.unique && !slot.unique) {
       return false;
     }
+    if ((item.unique || item.preventLoss) && slot.broken) return false;
     const preventLoss = item.preventLoss || slot.preventLoss;
     if (slot.lossy && item.losable && preventLoss) return false;
     // TODO - flag for "protect all losable items"
@@ -409,6 +504,7 @@ export class Graph {
         console.log(`Slots:\n  ${[...iters.concat(...slotPasses)].map(n).join('\n  ')}`);
         //console.log(`Fill:\n  ${[...fill].map(([s,i]) => `${ns(s)}: ${ni(i)}`).join('\n  ')}`);
         console.error(`REROLL: Could not place item ${n(item)}`);
+        this.lastFailure = `could not place non-progression ${n(item)}`;
         return null;
       }
     }
@@ -475,9 +571,74 @@ export class Graph {
 //         .filter(i=>!Bits.has(has, i)).map(i => [i,this.items.get(i)]).sort((a,b)=>a[1]-b[1])
 //         .map(([j,i]) => `${String(j).padStart(3)} ${hex(i).padStart(3,'0')} ${
 //                            this.checkName(i)}`).join('\n'));
-// (window as any).FINALHAS = has;
+// (globalThis as any).FINALHAS = has;
 
     return reachable;
+  }
+
+  analyzeSpheres2(fill: (slot: SlotIndex) => ItemIndex|undefined): Array<[string, number, string]> {
+    let has = Bits.of();
+    let sphere = 0;
+    let next = Bits.of();
+    const result: Array<[string, number, string]> = [];
+    const unseen = new Set<SlotIndex>(
+        Array.from({length: this.slots.length}, (_, i) => i as SlotIndex));
+    do {
+      const queue = new Set<SlotIndex>(unseen);
+      next = Bits.of();
+      for (const n of queue) {
+        const needed = this.graph.get(n)!;
+        for (let i = 0, len = needed.length; i < len; i++) {
+          if (!Bits.containsAll(has, needed[i])) continue;
+          unseen.delete(n);
+          const items: ItemIndex[] = [];
+          if (n < this.common) items.push(n as number as ItemIndex);
+          const filled = fill(n);
+          if (filled != null) items.push(filled);
+          for (const item of items) {
+            const id = this.items.get(item);
+            if (id != null && id >= 0x200 && id < 0x280) {
+              // If it's an item, then save it for later.
+              result.push([this.itemNameFromIndex(item), sphere, this.checkName(this.slots.get(n)!)]);
+              next = Bits.with(next, item);
+            } else {
+              // If it's pseudo, then add it immediately.
+              has = Bits.with(has, item);
+              for (const j of this.unlocks.get(item) || []) {
+                if (unseen.has(j)) queue.add(j);
+              }
+            }
+          }
+          break;
+        }
+      }
+      has = Bits.union(has, next);
+      if (!Bits.empty(next)) sphere++;
+    } while (unseen.size); // !Bits.empty(next));
+    return result;
+  }
+
+  analyzeSpheres(fill: (slot: SlotIndex) => ItemIndex|undefined): Array<[ItemId, string, number, string]> {
+    let has = Bits.of();
+    let sphere = 0;
+    const result: Array<[ItemId, string, number, string]> = [];
+    while (true) {
+      const reachable = this.traverse(() => undefined, has);
+      let progress = false;
+      for (const slot of reachable) {
+        const item = fill(slot);
+        if (item == null || Bits.has(has, item)) continue;
+        has = Bits.with(has, item);
+        progress = true;
+        const id = this.items.get(item);
+        if (id != null && id >= 0x200 && id < 0x280) {
+          result.push([id, this.itemNameFromIndex(item), sphere, this.checkName(this.slots.get(slot)!)]);
+        }
+      }
+      if (!progress) break;
+      sphere++;
+    }
+    return result;
   }
 
   expandFill(indexFill: MutableArrayBiMap<SlotIndex, ItemIndex>,
@@ -510,6 +671,13 @@ export class Graph {
 
   checkName(id: number): string {
     return this.worlds[id >>> 24].checkName(id & 0xffffff);
+  }
+
+  itemNameFromIndex(index: number): string {
+    if (index < this.common) return this.checkName(this.slots.get(index as any) as any);
+    const id = this.items.get(index as any);
+    if (!id || (id & ~0xff) !== 0x200) return '$' + hex(id as any);
+    return (globalThis as any).rom.items[id & 0xff]?.messageName || '$' + hex(id as any);
   }
 
   prefill(fill: MutableArrayBiMap<SlotId, ItemId>, random: Random) {
@@ -548,10 +716,11 @@ export class Graph {
   }
 }
 
-function addCopies<T>(arr: T[], elem: T, copies: number) {
-  for (let i = 0; i < copies; i++) {
-    arr.push(elem);
-  }
+interface Weights {
+  /** Weight (power) of each item. */
+  items: Keyed<ItemIndex, number>;
+  /** Weight (depth) of each slot. */
+  slots: Keyed<SlotIndex, number>;
 }
 
 

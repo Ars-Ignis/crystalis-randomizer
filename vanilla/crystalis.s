@@ -79,7 +79,7 @@
 .define ObjectLevel            $0420 ; also :40 selects ext hitboxes
 .define ObjectChildSpawn       $0440
 .define ObjectTerrainSusceptibility  $0460
-;;; 480 ?
+.define ObjectTimer            $0480
 .define ObjectActionScript     $04a0 ; also includes presence in :80
 .define ObjectReplacement      $04c0 ; ???
 .define ObjectAnimationCounter $04e0
@@ -16185,7 +16185,7 @@ Sfx76_Ch5:
         .byte [@191fe@],[@191ff@]
         .byte [@19200@]
 
-.segment "0c"
+.segment "0c","0d"
 ;;; --------------------------------
 ;;; The format of the elements pointed to by this data table is as follows:
 ;;;   * byte 0: always zero
@@ -26232,7 +26232,8 @@ BossPatternJump_00:              ; Vampire 0
          beq :>rts
         <@1e4b2@>
         <@1e4b4 ObjectDelay@>
-        <@1e4b7 BGM_BOSS@>
+        <@1e4b7 bossMusic_vampire@>
+             bossMusic_vampire = [@1e4b8@]
         <@1e4b9 StartAudioTrack@>
         ;; Start in mode 2
         <@1e4bc ObjectBossMode@>
@@ -26242,7 +26243,7 @@ BossPatternJump_00:              ; Vampire 0
 .org $a4c3
 BossPatternJump_01:              ; Vampire 1
         ;; Appears to be unused?
-        <@1e4c3@>
+        <@1e4c3 ObjectTimer@>
          bne :>rts
         <@1e4c8 ObjectBossMode@>
         <@1e4cb@>
@@ -26526,7 +26527,8 @@ BossPatternJump_08:              ; Insect 0
         <@1e68c +@> ; $1e68f
          <@1e68e@>
          ;; ----
-+       <@1e68f BGM_BOSS@>
++       <@1e68f bossMusic_insect@>
+             bossMusic_insect = [@1e690@]
         <@1e691 StartAudioTrack@>
         <@1e694@>
         <@1e697@>
@@ -26689,14 +26691,14 @@ BossPatternJump_09:              ; Insect 1
         <@1e885 ScreenMode@>
         <@1e887@>
         <@1e88a _1e84d@>
-        <@1e88c@>
+        <@1e88c ObjectTimer@>
         <@1e88f ++@> ; $1e8bc
          <@1e891 GenerateRandomNumber@>
          <@1e894@>
          <@1e896@>
          <@1e898@>
          <@1e899@>
-         <@1e89b@>
+         <@1e89b ObjectTimer@>
          <@1e89e GenerateRandomNumber@>
          <@1e8a1@>
          <@1e8a3 +@> ; $1e8aa
@@ -26818,7 +26820,8 @@ BossPatternJump_0a:              ; Kelbesque 0
          beq :>rts ; $1e9c5
         <@1e995@>
         <@1e997@>
-        <@1e99a BGM_BOSS@>
+        <@1e99a bossMusic_kelbesque@>
+             bossMusic_kelbesque = [@1e99b@]
         <@1e99c StartAudioTrack@>
         <@1e99f@>
         <@1e9a1@>
@@ -26850,7 +26853,7 @@ BossPatternJump_0b:              ; Kelbesque 1
            <@1e9d6@>
            <@1e9d8@>
            <@1e9db@>
-           <@1e9dd@>
+           <@1e9dd ObjectTimer@>
            <@1e9e0@>
            <@1e9e2@>
            <@1e9e5@>
@@ -26867,9 +26870,9 @@ BossPatternJump_0b:              ; Kelbesque 1
            ;; ----
 +       <@1e9fa@>
         <@1e9fc@>
-        <@1e9ff@>
+        <@1e9ff ObjectTimer@>
         <@1ea02@>
-        <@1ea05@>
+        <@1ea05 ObjectTimer@>
         <@1ea08@>
         <@1ea0a _1ea37@>
          <@1ea0c@>
@@ -26890,7 +26893,7 @@ BossPatternJump_0b:              ; Kelbesque 1
         <@1ea2d _1ea37@>
         <@1ea2f@>
         <@1ea32@>
-        <@1ea34@>
+        <@1ea34 ObjectTimer@>
 _1ea37:
         <@1ea37@>
         <@1ea3a ComputeDisplacementVector@>
@@ -26901,7 +26904,7 @@ _1ea37:
 .org $aa46
 BossPatternJump_0c:              ; Kelbesque 2
         <@1ea46@>
-        <@1ea49@>
+        <@1ea49 ObjectTimer@>
         <@1ea4c +@> ; $1ea5a
          <@1ea4e@>
          <@1ea51@>
@@ -26909,7 +26912,7 @@ BossPatternJump_0c:              ; Kelbesque 2
          <@1ea56@>
          <@1ea59@>
          ;; ----
-+       <@1ea5a@>
++       <@1ea5a ObjectTimer@>
         <@1ea5d@>
         <@1ea5f _1ea37@>
         <@1ea61@>
@@ -26947,7 +26950,7 @@ DataTable_1ea9f:
 ;;; --------------------------------
 .org $aaa7
 BossPatternJump_0d:              ; Kelbesque 3
-        <@1eaa7@>
+        <@1eaa7 ObjectTimer@>
         <@1eaaa +@> ; $1eab2
          <@1eaac@>
          <@1eaaf _1ea89@>
@@ -26982,21 +26985,21 @@ BossPatternJump_0d:              ; Kelbesque 3
 BossPatternJump_0e:              ; Kelbesque 4
         <@1eae6@>
         <@1eae8@>
-        <@1eaeb@>
+        <@1eaeb ObjectTimer@>
         <@1eaee +@> ; $1eaf8
          <@1eaf0@>
          <@1eaf2@>
          <@1eaf5 _1ea89@>
          ;; ----
-+       <@1eaf8@>
++       <@1eaf8 ObjectTimer@>
         <@1eafb@>
          bcs :>rts ; $1eb24
         <@1eaff@>
         <@1eb01@>
-        <@1eb04@>
+        <@1eb04 ObjectTimer@>
         <@1eb07@>
          bcs :>rts ; $1eb24
-        <@1eb0a@>
+        <@1eb0a ObjectTimer@>
         <@1eb0d@>
         <@1eb0f +@> ; $1eb1c
          <@1eb11@>
@@ -27243,7 +27246,8 @@ BossPatternJump_17:              ; Sabera 0
          beq :>rts ; $1ecf4
         <@1ecab@>
         <@1ecad@>
-        <@1ecb0 BGM_BOSS@>
+        <@1ecb0 bossMusic_sabera@>
+             bossMusic_sabera = [@1ecb1@]
         <@1ecb2 StartAudioTrack@>
         <@1ecb5@>
         <@1ecb8@>
@@ -27337,7 +27341,7 @@ BossPatternJump_18:              ; Sabera 1
          <@1ed69@>
          <@1ed6a DataTable_1ed82@>
          <@1ed6d@>
-+       <@1ed70@>
++       <@1ed70 ObjectTimer@>
         <@1ed73 ReadObjectCoordinatesInto_34_37@>
         <@1ed76@>
         <@1ed79 ComputeDisplacementVector@>
@@ -27413,7 +27417,8 @@ BossPatternJump_1b:              ; Mado 0
          beq :>rts ; $1ee34
         <@1ee09@>
         <@1ee0b@>
-        <@1ee0e BGM_BOSS@>
+        <@1ee0e bossMusic_mado@>
+             bossMusic_mado = [@1ee0f@]
         <@1ee10 StartAudioTrack@>
         <@1ee13@>
         <@1ee16@>
@@ -27455,7 +27460,7 @@ BossPatternJump_1d:              ; Mado 2
 ;;; --------------------------------
 .org $ae5a
 BossPatternJump_1e:              ; Mado 3
-        <@1ee5a@>
+        <@1ee5a ObjectTimer@>
         <@1ee5d@>
         <@1ee60@>
         <@1ee63 _1eeba@>
@@ -27601,7 +27606,8 @@ BossPatternJump_21:              ; Karmine 0
          beq :>rts ; $1efac
         <@1ef7d@>
         <@1ef7f@>
-        <@1ef82 BGM_BOSS@>
+        <@1ef82 bossMusic_karmine@>
+             bossMusic_karmine = [@1ef83@]
         <@1ef84 StartAudioTrack@>
         <@1ef87@>
         <@1ef8a@>
@@ -27853,7 +27859,8 @@ BossPatternJump_27:              ; Draygon 0
         <@1f17e@>
         <@1f181@>
         <@1f183@>
-        <@1f186 BGM_BOSS@>
+        <@1f186 bossMusic_draygon1@>
+             bossMusic_draygon1 = [@1f187@]
         <@1f188 StartAudioTrack@>
         <@1f18b@>
         <@1f18d@>
@@ -27917,7 +27924,7 @@ BossPatternJump_28:              ; Draygon 1
          <@1f202@>
          ;; ----
 _1f203:
-        <@1f203@>
+        <@1f203 ObjectTimer@>
         <@1f206 ReadObjectCoordinatesInto_34_37@>
         <@1f209@>
         <@1f20c ComputeDisplacementVector@>
@@ -28066,7 +28073,8 @@ BossPatternJump_2b:              ; Draygon2 0
         <@1f308@>
         <@1f30b@>
         <@1f30d _34c3d@>
-        <@1f310 BGM_DRAYGON2@>
+        <@1f310 bossMusic_draygon2@>
+             bossMusic_draygon2 = [@1f311@]
         <@1f312 StartAudioTrack@>
         <@1f315@>
         <@1f317@>
@@ -28145,7 +28153,7 @@ BossPatternJump_2b:              ; Draygon2 0
 BossPatternJump_2c:              ; Draygon2 1
         <@1f3bc@>
         <@1f3be ObjectKnockback@>
-        <@1f3c1@>
+        <@1f3c1 ObjectTimer@>
         <@1f3c4@>
          <@1f3c7 _1f425@> ; some long routine at end?
         <@1f3c9@>
@@ -28295,7 +28303,7 @@ _1f4c8:
 .org $b4dd
 BossPatternJump_2d:              ; Draygon2 2
         <@1f4dd@>
-        <@1f4e0@>
+        <@1f4e0 ObjectTimer@>
         <@1f4e3 ObjectHP@>
         <@1f4e6 +@> ; $1f4eb
          <@1f4e8 _1f4c8@>
@@ -28324,7 +28332,7 @@ DataTable_1f51c:
 .org $b524
 BossPatternJump_2e:              ; Draygon2 3
         <@1f524@>
-        <@1f527@>
+        <@1f527 ObjectTimer@>
         <@1f52a@>
         <@1f52d +@> ; $1f532
          <@1f52f _1f4c8@>
@@ -28728,7 +28736,7 @@ DataTable_1f7c1:                 ; This table is read in fives
 ObjectActionJump_6f:
         ;; This is the action for $CF which spawns after some (all?) bosses die
         <@1f807@>
-        <@1f809@>
+        <@1f809 OBJ_BOSS_CHEST@>
         <@1f80b@>
         <@1f80d LoadOneObjectData@>
         <@1f810@>
@@ -29103,7 +29111,7 @@ BossKillJump_GeneralEscapes:
         <@1faeb@>
         <@1faed@>
         <@1faf0 _1fb29@>
-        <@1faf3@>
+        <@1faf3 SFX_DIALOG@>
         <@1faf5 StartAudioTrack@>
         <@1faf8 WaitForDialogToBeDismissed@>
         <@1fafb _1fb5b@>
@@ -40002,7 +40010,7 @@ _27fc9:
          <@27fd1@>
          <@27fd4 DataTable_27fe8+1@>
          <@27fd7@>
-         <@27fda@>
+         <@27fda SFX_DIALOG@>
          <@27fdc StartAudioTrack@>
          <@27fdf WaitForDialogToBeDismissed@>
         <@27fe2@>
@@ -40743,7 +40751,7 @@ LookupMessageInternal:
         <@2853a@>
         <@2853d@>
         <@28540 MessageTableBanks@>
-        <@28543 BankSwitch8k_A000_alt@>
+        <@28543 BankSwitch8k_a000_alt@>
         <@28546@>
         <@28549@>
         <@2854a@>
@@ -40812,7 +40820,7 @@ MessageDecodeJump:
         .word (MessageDecodeJump_02_EndLine)         ; 02 new line
         .word (MessageDecodeJump_03_EndPage)         ; 03 continue on next page
         .word (MessageDecodeJump_04_PlayerName)      ; 04 player name
-        .word (MessageDecodeJump_05_LessCommonWord)  ; 05 less common words (arg follows)
+        .word (MessageDecodeJump_05_UncommonWord)    ; 05 less common words (arg follows)
         .word (MessageDecodeJump_06_PersonName)      ; 06 person names (arg follows)
         .word (MessageDecodeJump_07_ItemName)        ; 07 item names (arg follows)
         .word (MessageDecodeJump_08_CurrentItemName) ; 08 currently gained item name
@@ -40906,7 +40914,7 @@ MessageDecodeJump_03_EndPage:
         <@28645 ReadControllersWithDirections@>
         <@28648@>
         <@2864b MessageTableBanks@>
-        <@2864e BankSwitch8k_A000_alt@>
+        <@2864e BankSwitch8k_a000_alt@>
         <@28651@>
         <@28653@>
         <@28655 +@> ; $28660
@@ -40938,14 +40946,14 @@ MessageDecodeJump_04_PlayerName:
 +       <@28681@>
 ;;; --------------------------------
 .org $8682
-MessageDecodeJump_05_LessCommonWord:
+MessageDecodeJump_05_UncommonWord:
         <@28682 _28710@>
         <@28685@>
         <@28687@>
         <@28688@>
-        <@28689 LessCommonWords@>
+        <@28689 UncommonWords@>
         <@2868c@>
-        <@2868e LessCommonWords+1@>
+        <@2868e UncommonWords+1@>
         <@28691@>
 CopyWordToMessageBuffer:
         ;; Copies the word at ($2a) to the message buffer.
@@ -41245,7 +41253,7 @@ StageNametableWriteForMessage:
         <@28857 EnableNMI_alt@>
 ;;; --------------------------------
 .org $885a
-BankSwitch8k_A000_alt:
+BankSwitch8k_a000_alt:
         <@2885a@>
         <@2885c@>
         <@2885e@>
@@ -41449,17 +41457,17 @@ CommonWords:
         .word (CommonWord_fe) ; fe
         .word (CommonWord_ff) ; ff
 .org $8a00
-LessCommonWords:
-        .word (LessCommonWord_00) ; 00
-        .word (LessCommonWord_01) ; 01
-        .word (LessCommonWord_02) ; 02
-        .word (LessCommonWord_03) ; 03
-        .word (LessCommonWord_04) ; 04
-        .word (LessCommonWord_05) ; 05
-        .word (LessCommonWord_06) ; 06
-        .word (LessCommonWord_07) ; 07
-        .word (LessCommonWord_08) ; 08
-        .word (LessCommonWord_09) ; 09
+UncommonWords:
+        .word (UncommonWord_00) ; 00
+        .word (UncommonWord_01) ; 01
+        .word (UncommonWord_02) ; 02
+        .word (UncommonWord_03) ; 03
+        .word (UncommonWord_04) ; 04
+        .word (UncommonWord_05) ; 05
+        .word (UncommonWord_06) ; 06
+        .word (UncommonWord_07) ; 07
+        .word (UncommonWord_08) ; 08
+        .word (UncommonWord_09) ; 09
 .org $8a14
 PersonNames:
         .word (PersonName_00) ; 00
@@ -41834,25 +41842,25 @@ CommonWord_ff:
         .byte [@28d35:2@],[@28d37@]      ; ff
 ;;; Less common words (05)
 .org $8d38
-LessCommonWord_00:
+UncommonWord_00:
         .byte [@28d38:6@],[@28d3e@]        ; 05 00
-LessCommonWord_01:
+UncommonWord_01:
         .byte [@28d3f:6@],[@28d45@]        ; 05 01
-LessCommonWord_02:
+UncommonWord_02:
         .byte [@28d46:3@],[@28d49@]           ; 05 02
-LessCommonWord_03:
+UncommonWord_03:
         .byte [@28d4a:5@],[@28d4f@]         ; 05 03
-LessCommonWord_04:
+UncommonWord_04:
         .byte [@28d50:5@],[@28d55@]         ; 05 04
-LessCommonWord_05:
+UncommonWord_05:
         .byte [@28d56:7@],[@28d5d@]       ; 05 05
-LessCommonWord_06:
+UncommonWord_06:
         .byte [@28d5e:6@],[@28d64@]        ; 05 06
-LessCommonWord_07:
+UncommonWord_07:
         .byte [@28d65:6@],[@28d6b@]        ; 05 07
-LessCommonWord_08:
+UncommonWord_08:
         .byte [@28d6c:10@],[@28d76@]    ; 05 08
-LessCommonWord_09:
+UncommonWord_09:
         .byte [@28d77:8@],[@28d7f@]      ; 05 09
         .byte [@28d80:13@],[@28d8d@] ; 05 0a
 ;;; Person names (06)
@@ -45457,7 +45465,7 @@ RevertChangeMagic:
 ;;; --------------------------------
 .org $bc00
 MaybeSetCheckpoint:
-        <@2fc00 _2fc09@>
+        <@2fc00 MaybeSetCheckpointActual@>
 ;;; --------------------------------
 .org $bc03
 _2fc03:
@@ -45468,7 +45476,7 @@ _2fc06:
         <@2fc06 _2fcda@>
 ;;; --------------------------------
 .org $bc09
-_2fc09:
+MaybeSetCheckpointActual:
         <@2fc09@>
          <@2fc0a@>
          <@2fc0b@>
@@ -49102,7 +49110,7 @@ ComputeDisplacementVector:
         <@3449f@>
         <@344a1 SpeedTable_Widths@>
         <@344a4@>
-        <@344a6@>
+        <@344a6 ObjectTimer@>
         <@344a9@>
         <@344ab@>
         <@344ad@>
@@ -49479,7 +49487,7 @@ LoadPalettesForCustomLocation:
          <@34c2c@>
          <@34c2d@>
         <@34c2e@>
-        <@34c2f BankSwitch8k_A000@>
+        <@34c2f BankSwitch8k_a000@>
 ;;; --------------------------------
 .org $8c32
 _34c32:
@@ -49562,7 +49570,7 @@ PreparePaletteData:
         <@34c8f +@> ; $34c92
          <@34c91@>
 +       <@34c92@>
-        <@34c93 BankSwitch8k_A000@>
+        <@34c93 BankSwitch8k_a000@>
         <@34c96@>
         <@34c98@> ; push $11; we may temporarily zero it.
          <@34c99@>
@@ -50093,7 +50101,7 @@ _3506c:
         <@3506f +@> ; $3507b
          <@35071@>
          <@35073@>
-         <@35076@>
+         <@35076 SFX_ATTACK_IMMUNE@>
          <@35078 StartAudioTrack@>
          ;; ----
 +       <@3507b@>
@@ -51059,7 +51067,7 @@ AdHocSpawnObject:
         <@35732@>
         <@35734@>
          <@35735@> ; A000 -> 28000
-         <@35737 BankSwitch8k_A000@>
+         <@35737 BankSwitch8k_a000@>
          <@3573a@>
          <@3573c@>
          <@3573e AdHocSpawns@>
@@ -51084,7 +51092,7 @@ AdHocSpawnObject:
         ;; a few entries in 29c00 have #$ff for $21 -> return right away
          <@3576b @loop@>
         <@3576d@>
-        <@3576e BankSwitch8k_A000@>
+        <@3576e BankSwitch8k_a000@>
         <@35771@>
         <@35772@>
         ;; ----
@@ -51141,7 +51149,7 @@ AdHocSpawnObject:
          <@357cc@>
          <@357ce @loop@>
 @quit:  <@357d0@>
-        <@357d1 BankSwitch8k_A000@>
+        <@357d1 BankSwitch8k_a000@>
         <@357d4@>
         <@357d6@>
 ;;; --------------------------------
@@ -51903,6 +51911,7 @@ DataTable_35c66:
          <@35c86 +@> ; $35c91
           <@35c88 EquippedPassiveItem@>
           <@35c8b ITEM_WARRIOR_RING@>
+CheckWarriorRing:
           <@35c8d +@> ; $35c91
            <@35c8f@>
 +       <@35c91@>
@@ -51941,7 +51950,7 @@ DataTable_35c66:
         <@35cce SpendMPOrDoubleReturn@>
 SwordSwingEnd:
 -       <@35cd1@>
-        <@35cd3@>
+        <@35cd3 PlayerSwordChargeAmount@>
         <@35cd6@>
         <@35cd9@>
         ;; ----
@@ -51987,7 +51996,7 @@ UpdatePlayerFalling:
 ++      <@35d27@>
         <@35d29@>
         <@35d2b +@> ; $35d3a
-         <@35d2d@> ; falling sound?!?
+         <@35d2d SFX_56@> ; falling sound?!?
          <@35d2f StartAudioTrack@>
          <@35d32@>
          <@35d34@>
@@ -52160,7 +52169,7 @@ ObjectActionJump_03:
         <@35eb8@>
 +       <@35eba@>
         <@35ebc@>
-        <@35ebf@>
+        <@35ebf ObjectTimer@>
         <@35ec2 MoveObjectWithSpeedAndDirection@>
         <@35ec5 +@> ; $35ed8
          <@35ec7@>
@@ -52180,7 +52189,7 @@ ObjectActionJump_03:
         <@35ee8 ++@> ; $35eef
          <@35eea@>
          <@35eec@>
-++      <@35eef@>
+++      <@35eef GlobalCounter@>
         <@35ef1@>
         <@35ef3 +@> ; $35efa
          <@35ef5 ChargeIndicatorDisplay@>
@@ -52284,10 +52293,10 @@ _35fd2:
         <@35fd5@>
          <@35fd6@>
          <@35fd9@>
-          <@35fda@>
+          <@35fda ObjectTimer@>
           <@35fdd@>
            <@35fde@>
-           <@35fe0@>
+           <@35fe0 ObjectTimer@>
            <@35fe3@>
            <@35fe6@>
            <@35fe9@>
@@ -52301,7 +52310,7 @@ _35fd2:
            <@35ffc DataTable_3600f@>
            <@35fff@>
 +         <@36002@>
-          <@36003@>
+          <@36003 ObjectTimer@>
          <@36006@>
          <@36007@>
         <@3600a@>
@@ -52647,7 +52656,7 @@ DataTable_36242:
 ;;; --------------------------------
 .org $a24a
 ObjectActionJump_0b:             ; Stom fight (in $4a0)
-        <@3624a _362b4@>
+        <@3624a StomFight_CheckExitCondition@> ; $362b4
         <@3624d@>
         <@3624f@>
         <@36252@>
@@ -52699,15 +52708,18 @@ ObjectActionJump_0b:             ; Stom fight (in $4a0)
 DataTable_362ac: 
         .byte [@362ac@],[@362ad@],[@362ae@],[@362af@],[@362b0@],[@362b1@],[@362b2@],[@362b3@]
 ;;; --------------------------------
-.org $a2b4
-_362b4:
+;;; Check the exit conditions for the stom fight
+.org $a2b4                      ; 362b4
+StomFight_CheckExitCondition:
+        ;; Check the player's Y-coordinate within the screen
         <@362b4@>
         <@362b6@>
-        <@362b8 ++@> ; $362e8
+        <@362b8 ++@> ; $362e8  - "below" (>=) $98 => player loses
          <@362ba@>
-         <@362bc +@> ; $362bf
-          <@362be@>
+         <@362bc +@> ; $362bf  - "above" (<) $58 => player wins
+          <@362be@>  ;         - else return
         ;; ----
+         ;; Player wins fight
 +        <@362bf@>
          <@362c2@>
          <@362c4@>
@@ -52725,8 +52737,9 @@ _362b4:
          <@362dd@>
          <@362e0@>
          <@362e2@>
-         <@362e5 _362fc@>
+         <@362e5 StomFight_Exit@> ; $362fc
          ;; ----
+        ;; Player loses fight
 ++      <@362e8@>
         <@362ea@>
         <@362ed@>
@@ -52735,7 +52748,7 @@ _362b4:
         <@362f4@>
         <@362f7@>
         <@362f9@>
-_362fc:
+StomFigiht_Exit:
         <@362fc GAME_MODE_STATUS_MSG@>
         <@362fe GameMode@>
         <@36300@>
@@ -52795,7 +52808,7 @@ ObjectActionJumpTable:
         .word (ObjectActionJump_28_Golem) ; 28 monster
         .word (ObjectActionJump_29_AmorphousBlob) ; 29 monster
         .word (ObjectActionJump_2a_Soldier) ; 2a monster
-        .word (ObjectActionJump_2b) ; 2b
+        .word (ObjectActionJump_2b) ; 2b mimic
         .word (ObjectActionJump_2c) ; 2c
         .word [@3636e:w@]
         .word (ObjectActionJump_2e) ; 2e monster
@@ -53284,7 +53297,7 @@ ObjectActionJump_50:
         <@366a5@>
         <@366a8@>
         <@366ab@>
-        <@366ae@>
+        <@366ae ObjectTimer@>
         <@366b1@>
         <@366b3@>
         <@366b6@>
@@ -53324,7 +53337,7 @@ ObjectActionJump_51:
 +       <@366ee@>
         <@366f1@>
          bne :>rts ; $366fa
-        <@366f5@>
+        <@366f5 SFX_WINDMILL@>
         <@366f7 StartAudioTrack@>
         ;; ----
         <@366fa@>
@@ -53502,7 +53515,7 @@ ObjectActionJump_54:
          <@36842@>
          <@36844@>
          <@36846@>
-++      <@36849@>
+++      <@36849 ObjectTimer@>
         <@3684c@>
         <@3684f ReadObjectCoordinatesInto_34_37@>
         <@36852@>
@@ -53597,7 +53610,7 @@ DataTable_36908:
 .org $a90c
 ObjectActionJump_79:
         <@3690c@>
-        <@3690e BankSwitch8k_A000@>
+        <@3690e BankSwitch8k_a000@>
         <@36911 MaybeShootProjectile@>
 ;;; --------------------------------
 .org $a914
@@ -53629,12 +53642,12 @@ ObjectActionJump_20_RandomMovement:
           <@36932@>
 +        <@36935@>
         ;; ----
-++      <@36936@> ; also some kind of step counter
+++      <@36936 ObjectTimer@> ; also some kind of step counter
         <@36939 +@> ; $3693e
         ;; After we've taken the pre-determined number of steps, stop and turn.
          <@3693b ObjectAction_RandomMovement_PickNewDirection@>
 +       <@3693e@>
-        <@36941@>
+        <@36941 ObjectTimer@>
         <@36944 MoveObjectWithSpeedAndDirection@>
         ;; If we just tried to move onto an impassible tile, then stop and turn.
         <@36947 ObjectAction_RandomMovement_PickNewDirection@>
@@ -53653,7 +53666,7 @@ ObjectAction_RandomMovement_PickNewDirection:
         <@36956@>
         <@36957@>
         <@36958@>
-        <@3695a@>
+        <@3695a ObjectTimer@>
         <@3695d GlobalCounter@>
         <@3695f@>
         <@36961@>
@@ -53825,11 +53838,11 @@ ObjectActionJump_24_HomingMovement:
         ;; Tick the non-looping counter (4e0) twice, the step counter once
 +       <@36a6b@>
         <@36a6e@>
-        <@36a71@>
+        <@36a71 ObjectTimer@>
         ;; 
         <@36a74@>
          <@36a77 ObjectAction_HomingMovement_Swerving@>
-        <@36a79@>
+        <@36a79 ObjectTimer@>
         <@36a7c@>
         <@36a7e +@> ; $36a96
          <@36a80@>
@@ -54026,8 +54039,8 @@ ObjectAction_AmorphousBlob_Main:
          <@36bd3@>
          <@36bd6 AdHocSpawnObject@>
 +       <@36bd9@>
-        <@36bdc@>
-        <@36bdf@>
+        <@36bdc ObjectTimer@>
+        <@36bdf ObjectTimer@>
         <@36be2@>
          bne :>rts
         ;; Every other frame decrement 640
@@ -54108,7 +54121,7 @@ ObjectAction_Soldier_CheckShoot:
 ObjectActionJump_2b:             ; Mimic
         <@36c60@>
         <@36c63 ++@> ; $36cae
-        <@36c65@>
+        <@36c65 ObjectTimer@>
         <@36c68@>
         <@36c6a@>
         <@36c6d@>
@@ -54541,7 +54554,7 @@ MovementScriptTable_0f:
 ;;; --------------------------------
 .org $afa9
 ObjectActionJump_38:
-        <@36fa9@>
+        <@36fa9 ObjectTimer@>
         <@36fac ReadObjectCoordinatesInto_34_37@>
         <@36faf@>
         <@36fb2@>
@@ -54594,7 +54607,7 @@ _36ffb:
 +       <@37006@>
         <@37009@>
         <@3700b +@> ; $37012
-         <@3700d@> ; some sort of weird explosion sound
+         <@3700d SFX_64@> ; some sort of weird explosion sound
          <@3700f StartAudioTrack@>
 +       <@37012@>
          beq :<rts ; $37005
@@ -54701,7 +54714,7 @@ ObjectActionJump_57:
         <@370c1 +@> ; $370c6
          <@370c3 ClearSpawnSlot@>
         ;; ----
-+       <@370c6@>
++       <@370c6 ObjectTimer@>
         <@370c9 +@> ; $370ce
          <@370cb _358cd@>
         ;; ----
@@ -54727,7 +54740,7 @@ ObjectActionJump_57:
 ObjectActionJump_16:
         <@370f6@>
         <@370f9@>
-        <@370fc@>
+        <@370fc ObjectTimer@>
         <@370ff@>
         <@37101 ++@> ; $37118
          <@37103@>
@@ -54757,7 +54770,7 @@ ObjectActionJump_1b:
          ;; ----
 +       <@37135@>
         <@37137@>
--         <@37139@>
+-         <@37139 ObjectTimer@>
           <@3713c@>
           <@3713f +@> ; $3716e
            <@37141 ReadObjectCoordinatesInto_34_37@>
@@ -54791,7 +54804,7 @@ ObjectActionJump_12:
         <@37177 ++@> ; $371bc
          <@37179@>
          <@3717c@>
-         <@3717f@>
+         <@3717f ObjectTimer@>
          <@37182 +@> ; $37187
           <@37184 ClearSpawnSlot@>
           ;; ----
@@ -54853,9 +54866,9 @@ DataTable_371f5:
 ;;; --------------------------------
 .org $b235
 ObjectActionJump_13: ; Blizzard projectile
-        <@37235@>
+        <@37235 ObjectTimer@>
         <@37238@>
-        <@3723a@>
+        <@3723a ObjectTimer@>
         <@3723d@>
         <@37240@>
         <@37243@>
@@ -54885,11 +54898,11 @@ ObjectActionJump_13: ; Blizzard projectile
 ;;; --------------------------------
 .org $b27a
 ObjectActionJump_15:
-        <@3727a@>
+        <@3727a ObjectTimer@>
         <@3727d +@> ; $37282
          <@3727f ClearSpawnSlot@>
          ;; ----
-+       <@37282@>
++       <@37282 ObjectTimer@>
         <@37285@>
         <@37287 +@> ; $37292
          <@37289@>
@@ -55054,7 +55067,7 @@ ObjectActionJump_40:
          <@373b7@>
          <@373b8@>
          <@373ba@>
-         <@373bb@>
+         <@373bb ObjectTimer@>
          <@373be@>
          <@373c0@>
          <@373c1 DataTable_3741e@>
@@ -55087,7 +55100,7 @@ ObjectActionJump_40:
           <@373f6@>
 .org $b3f9
 _373f9:
-         <@373f9@>
+         <@373f9 ObjectTimer@>
          <@373fc ReadObjectCoordinatesInto_34_37@>
          <@373ff@>
          <@37402 ComputeDisplacementVector@>
@@ -55123,7 +55136,7 @@ ObjectActionJump_44:
           <@3744a@>
           <@3744d@>
           ;; ----
-+        <@3744e@>
++        <@3744e ObjectTimer@>
          <@37451 ++@> ; $37479
           <@37453@>
           <@37456@>
@@ -55132,7 +55145,7 @@ ObjectActionJump_44:
            <@3745c@>
            <@3745f@>
 +         <@37462@>
-          <@37465@>
+          <@37465 ObjectTimer@>
           <@37468 ReadObjectCoordinatesInto_34_37@>
           <@3746b@>
           <@3746e ComputeDisplacementVector@>
@@ -55150,7 +55163,7 @@ ObjectActionJump_44:
         <@3748e GenerateRandomNumber@>
         <@37491@>
         <@37492 DataTable_374aa@>
-        <@37495@>
+        <@37495 ObjectTimer@>
         <@37498 DataTable_374b2@>
         <@3749b@>
         <@3749e@>
@@ -55190,7 +55203,7 @@ ObjectActionJump_45_BasicFlyer:
         <@374d9@>
         <@374db@>
         ;; Only change direction every 16 frames
-        <@374de@>
+        <@374de ObjectTimer@>
         <@374e1@>
         <@374e3 ++@> ; $3750e
 _374e5:
@@ -55217,7 +55230,7 @@ _374e5:
         <@37514@>
         <@37515 DataTable_37556@>
         <@37518@>
-        <@3751b@>
+        <@3751b ObjectTimer@>
         <@3751e ReadObjectCoordinatesInto_34_37@>
         <@37521@>
         <@37524 ComputeDisplacementVector@>
@@ -55272,7 +55285,7 @@ ObjectActionJump_48:
          ;; ----
 ++      <@37586 CheckToShootProjectile@>
         <@37589 ObjectActionJump_45_BasicFlyer@>
-        <@3758c@>
+        <@3758c ObjectTimer@>
         bne :>rts ; $37594
          <@37591 _374e5@>
          ;; ----
@@ -55392,8 +55405,8 @@ ObjectActionJump_5c:            ; Tower sentinel turret
           <@37643@>
           <@37645@>
           <@37647@>
-++       <@3764a@>
-         <@3764d@>
+++       <@3764a ObjectTimer@>
+         <@3764d ObjectTimer@>
          <@37650@>
          <@37652 FinishRobotMovement@>
           <@37654 GenerateRandomNumber@>
@@ -55427,8 +55440,8 @@ FinishRobotMovement:
 .org $b690
 ObjectActionJump_5d:            ; Helicopter
         <@37690@>
-        <@37693@>
-        <@37696@>
+        <@37693 ObjectTimer@>
+        <@37696 ObjectTimer@>
         <@37699@>
         <@3769b +@> ; $376a7
          <@3769d@>
@@ -55563,18 +55576,18 @@ ReturnEveryOtherFrameIfOffScreen:
 ObjectActionJump_7b:
         <@37778@>
         <@3777b@>
-        <@3777e@>
+        <@3777e ObjectTimer@>
         <@37781 +@> ; $37786
          <@37783 _358cd@>
          ;; ----
-+       <@37786@>
++       <@37786 ObjectTimer@>
         <@37789@>
         <@3778b +@> ; $37798
          <@3778d@>
          <@37790@>
          <@37793@>
          <@37795@>
-+       <@37798@>
++       <@37798 ObjectTimer@>
         <@3779b@>
         bcc :>rts ; $377c5
 _3779f:
@@ -55673,7 +55686,7 @@ DoExplosion:
 +       <@3785b@>
         <@3785e@>
         <@37860 +@> ; $37879
-         <@37862@>
+         <@37862 SFX_54@>
          <@37864 StartAudioTrack@>
          <@37867@>
          <@37869@>
@@ -56155,7 +56168,8 @@ ObjectActionJump_70_03:
         <@37c28@>
         <@37c2a@>
         <@37c2d@>
-        <@37c2f BGM_DYNA@>
+        <@37c2f bossMusic_dyna@>
+             bossMusic_dyna = [@37c30@]
         <@37c31 StartAudioTrack@>
 ;;; --------------------------------
 .org $bc34
@@ -57598,21 +57612,25 @@ Metasprite_11:                   ; Metasprite 11
         .byte [@388d5@],[@388d6@],[@388d7@],[@388d8@]
         ;; Variant 3
         .byte [@388d9@],[@388da@],[@388db@],[@388dc@]
-        .byte [@388dd@],[@388de@],[@388df@],[@388e0@]
-        ;; Variant 4
-        .byte [@388e1@],[@388e2@],[@388e3@],[@388e4@]
+;;; ----------------------------------------------------------------
+;;; Unused. Looks like a metasprite for the floating orb when charging sword
+;;; but the final game uses AdhocSpawnObject instead of a metasprite
+        .byte [@388dd@],[@388de@]
+        .byte [@388df@],[@388e0@],[@388e1@],[@388e2@]
+;;; ----------------------------------------------------------------
+;;; Unused. Some sort of metasprite that uses the refresh animation tiles
+;;; but the final game uses AdhocSpawnObject instead of a metasprite
+        .byte [@388e3@],[@388e4@]
         .byte [@388e5@],[@388e6@],[@388e7@],[@388e8@]
-        ;; Variant 5
         .byte [@388e9@],[@388ea@],[@388eb@],[@388ec@]
-        .byte [@388ed@],[@388ee@],[@388ef@],[@388f0@]
-        ;; Variant 6
-        .byte [@388f1@],[@388f2@],[@388f3@],[@388f4@]
-        .byte [@388f5@],[@388f6@],[@388f7@],[@388f8@]
-        ;; Variant 7
+        .byte [@388ed@],[@388ee@]
+        .byte [@388ef@],[@388f0@],[@388f1@],[@388f2@]
+        .byte [@388f3@],[@388f4@],[@388f5@],[@388f6@]
+        .byte [@388f7@],[@388f8@]
         .byte [@388f9@],[@388fa@],[@388fb@],[@388fc@]
         .byte [@388fd@],[@388fe@],[@388ff@],[@38900@]
-;;; ----------------------------------------------------------------
-        .byte [@38901@],[@38902@],[@38903@]
+        .byte [@38901@]
+        .word [@38902:w@]
 ;;; ----------------------------------------------------------------
 .org $8904
 Metasprite_1c:                   ; Metasprite 1c
@@ -60542,7 +60560,8 @@ Metasprite_ac:                   ; Metasprite ac
 ;;; ----------------------------------------------------------------
 .org $a877
 Metasprite_a7:                   ; Metasprite a7
-        ;; Player shadow
+        ;; Player shadow and shade/wraith shadow. Randomizer adds a new
+        ;; shade metasprite in the empty slot in 9a (and unused space at $88e3)
         .byte [@3a877@],[@3a878@]
         ;; Variant 0
         .byte [@3a879@],[@3a87a@],[@3a87b@],[@3a87c@]
@@ -62565,7 +62584,7 @@ UpdateEquipmentAndStatus:
            <@3c0f2 UpdateHPDisplayInternal@>
            <@3c0f5 WaitForNametableFlush@>
           <@3c0f8@>
-          <@3c0f9 BankSwitch8k_A000@>
+          <@3c0f9 BankSwitch8k_a000@>
          <@3c0fc@>
          <@3c0fd BankSwitch8k_8000@>
         ;; ----
@@ -62755,7 +62774,7 @@ _3c1ae:
           <@3c203 -@> ; $3c1bd
           <@3c205 _380a5@>
          <@3c208@>
-         <@3c209 BankSwitch8k_A000@>
+         <@3c209 BankSwitch8k_a000@>
         <@3c20c@>
         <@3c20d BankSwitch8k_8000@>
 ;;; --------------------------------
@@ -62829,7 +62848,7 @@ LoadOneObjectDataInternal:
          <@3c266@>
          <@3c267@>
           <@3c268@>
-          <@3c26a BankSwitch8k_A000@>
+          <@3c26a BankSwitch8k_a000@>
           <@3c26d@>
           <@3c26f@>
           <@3c270@>
@@ -62945,7 +62964,7 @@ LoadOneObjectDataInternal:
 +          <@3c337@>
            <@3c339 +@> ; $3c341
             <@3c33b@>
-            <@3c33d@> ; $0480,x <- mnst[y']:20 ? mnst[y++]
+            <@3c33d ObjectTimer@> ; ObjectTimer,x <- mnst[y']:20 ? mnst[y++]
             <@3c340@>
 +          <@3c341@>
            <@3c343 +@> ; $3c34b
@@ -63061,7 +63080,7 @@ BankSwitch16k:
         <@3c40e@>
         <@3c40f@>
         <@3c411@>
-        <@3c413 BankSwitch8k_A000@>
+        <@3c413 BankSwitch8k_a000@>
         <@3c416@>
 BankSwitch8k_8000:
         ;; Swap in the 8k bank number in register A.
@@ -63075,7 +63094,7 @@ BankSwitch8k_8000:
         <@3c426@>
 ;;; --------------------------------
 .org $c427
-BankSwitch8k_A000:
+BankSwitch8k_a000:
         ;; Swap in the 8k bank number in register A.
         ;; May run during IRQ.
         <@3c427@>
@@ -63642,7 +63661,7 @@ DrawFullScreenByUsingVerticalScroll:
             <@3c854@>
            <@3c856 -@> ; $3c83e
           <@3c858@>
-          <@3c859 BankSwitch8k_A000@>
+          <@3c859 BankSwitch8k_a000@>
          <@3c85c@>
          <@3c85d BankSwitch8k_8000@>
         <@3c860@>
@@ -63846,7 +63865,7 @@ MainLoopJump_00_PrepareGame:
 MainLoopJump_08_ContinueGame:
         <@3c9da PopulateInitialObjects@>
         <@3c9dd@> ; A000 -> 2E000
-        <@3c9df BankSwitch8k_A000@>
+        <@3c9df BankSwitch8k_a000@>
         <@3c9e2 _2fc06@>
         <@3c9e5 WaitForNametableFlush@>
         <@3c9e8 UpdateEquipmentAndStatus@>
@@ -64306,7 +64325,7 @@ _3ccdd:
            <@3cd21 +@> ; $3cd28
         ;; Routines 60..6f are in a different page
             <@3cd23@>
-            <@3cd25 BankSwitch8k_A000@>
+            <@3cd25 BankSwitch8k_a000@>
 +          <@3cd28@>
 _3cd2b:
           <@3cd2b@>
@@ -64340,7 +64359,7 @@ _3cd2b:
          <@3cd5e@>
          <@3cd60 BankSwitch8k_8000@>
          <@3cd63 MoveObjectWithSpeedAndDirection@>
-         <@3cd66@>
+         <@3cd66 ObjectTimer@>
          <@3cd69@>
          <@3cd6a@>
          <@3cd6d@>
@@ -64735,7 +64754,7 @@ MainGameModeJump_10_StatusMessage:
            <@3d09e@>
            <@3d0a1@>
            <@3d0a3@>
-           <@3d0a6@> ; Level up sfx
+           <@3d0a6 BGM_FANFARE_ALT@> ; Level up sfx
            <@3d0a8 StartAudioTrack@>
            <@3d0ab ++@> ; $3d0b3
         ;; ----
@@ -65323,7 +65342,7 @@ MainGameModeJump_06_ItemUseMessage:
         ;; teleported
 +       <@3d4e7 ItemUse_Main@>
         <@3d4ea@>
-        <@3d4ec BankSwitch8k_A000@>
+        <@3d4ec BankSwitch8k_a000@>
         <@3d4ef MaybeSetCheckpoint@>
 ;;; --------------------------------
 .org $d4f2
@@ -65919,7 +65938,7 @@ MainGameModeJump_12_Inventory:
           <@3d8d8 ^PlayerInventoryMenu@> ; $10
           <@3d8da BankSwitch8k_8000@>
           <@3d8dd@>
-          <@3d8df BankSwitch8k_A000@>
+          <@3d8df BankSwitch8k_a000@>
           <@3d8e2 PlayerInventoryMenu@>
           <@3d8e5@>
           <@3d8e7 WaitForOAMDMA@>
@@ -67667,7 +67686,7 @@ DoLocationSpecificChecks:
         <@3e4f9@>
         <@3e4fb _34c49@>
 +       <@3e4fe@> ; a000 -> 2e000
-        <@3e500 BankSwitch8k_A000@>
+        <@3e500 BankSwitch8k_a000@>
         <@3e503 MaybeSetCheckpoint@>
         <@3e506@>
         <@3e508@>
@@ -67697,7 +67716,7 @@ ExitTypeJump_1_Seamless:
 ExitTypeJump_2_Warp:
         ;; Teleport
         <@3e533@> ; 2e000 -> a000
-        <@3e535 BankSwitch8k_A000@>
+        <@3e535 BankSwitch8k_a000@>
         <@3e538 MaybeSetCheckpoint@>
         <@3e53b _3e845@>
         <@3e53e _3e61b@>
@@ -68036,7 +68055,7 @@ CopyMapDataFlags:
           <@3e753 -@> ; $3e70d
         ;; ----
 ++       <@3e756@>
-         <@3e757 BankSwitch8k_A000@>
+         <@3e757 BankSwitch8k_a000@>
         <@3e75a@>
         <@3e75b BankSwitch8k_8000@>
 ;;; --------------------------------
@@ -69024,11 +69043,11 @@ CheckMetatileAgainstFlag:
         <@3eda5@>
         <@3eda7@>
          <@3eda8@> ; $a000 -> $12000
-         <@3edaa BankSwitch8k_A000@>
+         <@3edaa BankSwitch8k_a000@>
          <@3edad@>
          <@3edaf@>
         <@3edb1@>
-        <@3edb2 BankSwitch8k_A000@>
+        <@3edb2 BankSwitch8k_a000@>
         <@3edb5@>
 +       <@3edb7@>
         <@3edb9@>
@@ -69120,7 +69139,7 @@ WriteMetatileAttributesForVerticalScroll:
          <@3edf5@>
         ;; ----
 +       <@3edf6@> ; $a000 -> $12000
-        <@3edf8 BankSwitch8k_A000@>
+        <@3edf8 BankSwitch8k_a000@>
         <@3edfb@>
         <@3edfd@>
         <@3edff@>
@@ -69173,7 +69192,7 @@ WriteMetatileAttributesForHorizontalScroll:
          <@3ee41@>
         ;; ----
 +       <@3ee42@> ; $a000 -> $12000
-        <@3ee44 BankSwitch8k_A000@>
+        <@3ee44 BankSwitch8k_a000@>
         <@3ee47@>
         <@3ee49@>
         <@3ee4b@>
@@ -69571,7 +69590,7 @@ ValidateSaveFiles:
         <@3f0a9@>
         <@3f0ab@>
         <@3f0ae@> ; a000 -> 2e000
-        <@3f0b0 BankSwitch8k_A000@>
+        <@3f0b0 BankSwitch8k_a000@>
 ValidateSaveFile1:
         ;; First check that the two copies are equal
         <@3f0b3@>
@@ -69711,7 +69730,7 @@ ResetSaveFile2:
 FinishSaveFileValidations:
         ;; All validations complete, switch the PRG bank back and return
         <@3f1c7@> ; prg bank mirror
-        <@3f1ca BankSwitch8k_A000@>
+        <@3f1ca BankSwitch8k_a000@>
         ;; ----
 UnconditionallyResetCheckpointFile:
         <@3f1cd@>
@@ -69720,7 +69739,7 @@ UnconditionallyResetCheckpointFile:
         <@3f1d5@>
         <@3f1d7@> ; save PRM bank
         <@3f1da@>
-        <@3f1dc BankSwitch8k_A000@>
+        <@3f1dc BankSwitch8k_a000@>
         <@3f1df ResetCheckpointFile@>
         ;; ----
 ValidateCheckpointFile:
@@ -70670,7 +70689,7 @@ MaybeUpdateMusic:
         <@3f873@>
         ;; Restore banks that were present before.
         <@3f875@>
-        <@3f877 BankSwitch8k_A000@>
+        <@3f877 BankSwitch8k_a000@>
         <@3f87a@>
         <@3f87c BankSwitch8k_8000@>
         <@3f87f BANKSELECT@>
@@ -71132,7 +71151,7 @@ WaitForDialogToBeDismissed:
 .org $ffdb
 RestoreBanks:
          <@3ffdb@>
-         <@3ffdc BankSwitch8k_A000@>
+         <@3ffdc BankSwitch8k_a000@>
         <@3ffdf@>
         <@3ffe0 BankSwitch8k_8000@>
 ;;; --------------------------------

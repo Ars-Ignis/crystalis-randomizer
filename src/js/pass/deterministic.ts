@@ -11,6 +11,7 @@ import {hex, Mutable} from '../rom/util';
 import {assert} from '../util';
 import {Monster} from '../rom/monster';
 import {Patterns} from '../rom/pattern';
+import { readLittleEndian } from '../rom/util';
 
 const [] = [hex]; // generally useful
 
@@ -107,15 +108,36 @@ export function deterministicPreParse(prg: Uint8Array): void {
         0xb4, 0x41,  // b4 windmill cave trigger -> 41 refresh
         0xff);       // for bookkeeping purposes, not actually used
 
-  // Make the sword use the element's palette instead of the player.
-  // TODO - move this into post-parse as a metasprite edit (we'll need to
-  // do a full write on that table...).  If we don't color the sword
-  // elements then this turns the swords a brighter white.
-  for (const addr of [0x38757, 0x38777, 0x3877b, 0x38797, 0x3879b,
-                      0x387db, 0x387df, 0x387fb, 0x387ff, 0x3881b, 0x3881f,
-                      0x38865, 0x38885, 0x38889, 0x388a5]) {
-    prg[addr] |= 1;
-  }
+  // Create a new metasprite for the shade/wraith enemy shadow so if the
+  // player edited the shadow metasprite then it won't give an advantage to
+  // the player
+  const METASPRITE_TABLE = 0x3845c;
+  const SHADOW_METASPRITE_ID = 0xa7;
+  const NEW_METASPRITE_ID = 0x9a;
+  const UNUSED_METASPRITE_DATA = 0x88e3 + 0x30000;
+  const origptr = readLittleEndian(prg, METASPRITE_TABLE + (SHADOW_METASPRITE_ID << 1)) + 0x30000;
+  const shadowdata = prg.slice(origptr, origptr + 10);
+  // add the new pointer in an unused slot
+  write(prg, METASPRITE_TABLE + (NEW_METASPRITE_ID << 1), UNUSED_METASPRITE_DATA & 0xff, (UNUSED_METASPRITE_DATA >> 8) & 0xff);
+  // update to use the second enemy palette (enemy palettes always have black as the 3rd color?)
+  shadowdata[4] |= 0x03;
+  shadowdata[8] |= 0x03;
+  // and write the data into unused space in metasprite 0x11
+  write(prg, UNUSED_METASPRITE_DATA, ...shadowdata);
+  // now update the shadows's metasprite (shadow 1 and shadow 2)
+  const OBJECT_DATA_SHADOW1 = 0x1b683;
+  const OBJECT_DATA_SHADOW2 = 0x1b80d;
+  prg[OBJECT_DATA_SHADOW1 + 2] = NEW_METASPRITE_ID;
+  prg[OBJECT_DATA_SHADOW2 + 2] = NEW_METASPRITE_ID;
+  // and also update the metasprite id in $06c0 and $06e0 (ObjectDirMetaspriteBase) since that gets copied into
+  // the metasprite every frame for reasons.
+  prg[OBJECT_DATA_SHADOW1 + 18] = NEW_METASPRITE_ID;
+  prg[OBJECT_DATA_SHADOW1 + 19] = NEW_METASPRITE_ID;
+  prg[OBJECT_DATA_SHADOW2 + 18] = NEW_METASPRITE_ID;
+  prg[OBJECT_DATA_SHADOW2 + 19] = NEW_METASPRITE_ID;
+  // When checking that the attack hit a shadow, it checks the metasprite id, so update that check too.
+  // change cmp #$a7 to cmp #NEW_METASPRITE_ID
+  prg[0x350f7] = NEW_METASPRITE_ID;
 
   // Rename the default name to "Simea".
   write(prg, 0x2656e, "Simea", 0x10, 0, "     ", 0x10, 0);
@@ -188,6 +210,10 @@ export function deterministic(rom: Rom, flags: FlagSet): void {
   if (flags.shouldColorSwordElements()) useElementSwordColors(rom);
 
   if (flags.hasStatTracking()) updateGraphicsForStatTracking(rom);
+
+  fixWildWarp(rom);
+
+  swapMimicAndRecoverGraphics(rom);
 }
 
 function updateGraphicsForStatTracking(rom: Rom): void {
@@ -604,6 +630,8 @@ function alarmFluteIsKeyItem(rom: Rom, flags:FlagSet): void {
     // Alarm flute and a medical herb are in chests in mezame
     MezameShrine.spawns.push(Spawn.of({screen: 0, tile: 0x9b, type: 2, id: 0x31}));
     MezameShrine.spawns.push(Spawn.of({screen: 0, tile: 0x95, type: 2, id: 0x49}));
+    ZebuStudent.unsafeRename('Mezame Right Chest');
+    rom.flags[0x149].unsafeRename('Mezame Left Chest');
     rom.itemGets[0x49].itemId = rom.items.MedicalHerb.id;
   }
 
@@ -815,10 +843,18 @@ function addZombieWarp(rom: Rom) {
 }
 
 function evilSpiritIslandRequiresDolphin(rom: Rom) {
-  rom.trigger(0x8a).conditions = [~rom.flags.CurrentlyRidingDolphin.id];
-  rom.messages.parts[0x1d][0x10].text = `The cave entrance appears
-to be underwater. You'll
-need to swim.`;
+  const {flags: {CurrentlyRidingDolphin},
+         locations: {AngrySea, EvilSpiritIsland1}} = rom;
+  rom.trigger(0x8a).conditions = [~CurrentlyRidingDolphin.id];
+  rom.messages.parts[0x1d][0x10].text = `This cave ceiling is too
+low to fly in.`;
+  removeIf(AngrySea.spawns, (s) => s.isTrigger() && s.id === 0x8a);
+  EvilSpiritIsland1.spawns.push(Spawn.of({
+    x: 0x058,
+    y: 0x0a0,
+    type: 2,
+    id: 0x8a,
+  }));
 }
 
 function channelItemRequiresDolphin(rom: Rom) {
@@ -890,16 +926,6 @@ function patchLimeTreeLake(rom: Rom, flags: FlagSet): void {
 }
 
 function preventNpcDespawns(rom: Rom, opts: FlagSet): void {
-  function remove<T>(arr: T[], elem: T): void {
-    const index = arr.indexOf(elem);
-    if (index < 0) throw new Error(`Could not find element ${elem} in ${arr}`);
-    arr.splice(index, 1);
-  }
-  function removeIf<T>(arr: T[], pred: (elem: T) => boolean): void {
-    const index = arr.findIndex(pred);
-    if (index < 0) throw new Error(`Could not find element in ${arr}`);
-    arr.splice(index, 1);
-  }
 
   // function dialog(id: number, loc: number = -1): LocalDialog[] {
   //   const result = rom.npcs[id].localDialogs.get(loc);
@@ -1151,6 +1177,7 @@ function preventNpcDespawns(rom: Rom, opts: FlagSet): void {
 
   // Kensu in lighthouse ($74/$7e @ $62) ~ redundant flag
   //dialog(0x74, 0x62)[0].flags = [];
+  rom.bossKills.kensuLighthouse.data2[0] = 0;
 
   // Azteca ($83) in pyramid ~ bow of truth redundant flag
   //dialog(0x83)[0].condition = ~0x240;  // 240 NOT bow of truth
@@ -1216,6 +1243,8 @@ function preventNpcDespawns(rom: Rom, opts: FlagSet): void {
   // 6. Don't free villagers from using prison key
   remove(KeyToPrison.itemUseData[0].flags,
          ~flags.LeafVillagersCurrentlyAbducted.id);
+  remove(KeyToPrison.itemUseData[0].flags,
+         flags.LeafVillagersRescued.id);
   // rom.prg[0x1e0a3] = 0xc0;
   // rom.prg[0x1e0a4] = 0x00;
 
@@ -1270,9 +1299,7 @@ function disableStabs(rom: Rom): void {
   for (const o of [0x08, 0x09, 0x27]) {
     rom.objects[o].collisionPlane = 0;
   }
-  // Also take warrior ring out of the picture... :troll:
-  // rom.itemGets[0x2b].id = 0x5b; // medical herb from second flute of lime check
-  rom.npcs.Brokahana.data[0] = rom.items.FruitOfLime.id;
+  // Warrior ring now functions as a "turret" mode after 32 frames of standing still
 }
 
 function orbsOptional(rom: Rom): void {
@@ -1309,6 +1336,113 @@ function fixCrystalis(rom: Rom) {
   rom.objects[0x33].elements = 0xf;
 }
 
+// Enables chests and mimics to appear on every screen by replacing the unused recover graphics
+// on the sword banks and replace it with chest and mimic sprites.
+function swapMimicAndRecoverGraphics(rom: Rom) {
+  // Summary of changes made here to swap mimic and recovery
+  // 1) copy the 10 recover spell sprites to a new bank.
+  // 2) copy the mimic and chest sprite to all of the sword banks.
+  // 3) update the metasprites for the recover spell and mimic and chest
+  // to use their new tile ids.
+
+  // Step 0: Make sure we don't do anything if the first shuffle failed (meaning we run this method
+  // a second time) We check to see if the new recover spell is pasted into the new bank
+  const newRecoverPage = 0x53 << 6;
+  if (!rom.patterns.get(newRecoverPage, 0x15).pixels.every( p => p === 0 )) {
+    return;
+  }
+
+  const windSwordPage = 0x42 << 6;
+  // Step 1
+  // Note: I chose the bank with Azteca in it ($53 or CHR $14c00) since it has a lot of unused tiles.
+  // In the original bank $42 it uses tiles $1c - $1f, $3a - $3f
+  const moveRecoverAddress = new Map<number, number>([
+    [0x1c, 0x15],
+    [0x1d, 0x16],
+    [0x1e, 0x17],
+    [0x1f, 0x18],
+    [0x3a, 0x19],
+    [0x3b, 0x1a],
+    [0x3c, 0x1b],
+    [0x3d, 0x1c],
+    [0x3e, 0x1d],
+    [0x3f, 0x1e],
+  ]);
+  moveRecoverAddress.forEach((newaddr, oldaddr) => {
+    rom.patterns.set(newRecoverPage, newaddr, rom.patterns.get(windSwordPage, oldaddr).pixels);
+  });
+  
+  const chestMimicPage = 0x6c << 6;
+  // Step 2
+  // Each weapon page is sequential in ROM starting from windsword $42 and ending with crystalis $46
+  const moveChestMimicAddress = [
+    // Chest = 4 sprites
+    [0x03, 0x1c],
+    [0x04, 0x1d],
+    [0x05, 0x1e],
+    [0x06, 0x1f],
+    // Mimic = 5 sprites
+    [0x33, 0x3a],
+    [0x34, 0x3b],
+    [0x35, 0x3c],
+    [0x36, 0x3d],
+    [0x37, 0x3e],
+  ]
+  moveChestMimicAddress.forEach(addr => {
+    const tile = rom.patterns.get(chestMimicPage, addr[0]).pixels;
+    for (let i=0; i<5; ++i) {
+      rom.patterns.set(windSwordPage + (i << 6), addr[1], tile);
+    }
+  });
+
+  // Step 2.1
+  // In vanilla, the recover spell usage actually ALWAYS switches to the wind sword
+  // bank for using recovery which makes updating the recover spell animation trivial
+  // Just switch the value of the wind sword bank to use the new recover bank one.
+  // NOTE: this will break mimic/chest sprites during recover animation
+  // but its worth it since thats such a small issue.
+
+  const unused = 0x80;
+  const chestMetasprite = 0xaa;
+  rom.metasprites[chestMetasprite].sprites.forEach(frame => {
+    frame.forEach(sprite => {
+      // 0x40 = PPU addr base
+      // 0x1c = new chest sprite location
+      // 0x83 = original chest starting tile
+      if (sprite[0] != unused) {
+        sprite[3] = (sprite[3] - 0x83) + 0x40 + 0x1c;
+      }
+    });
+  });
+
+  const mimicMetasprite = 0x90;
+  for (let frameNum = 0; frameNum < rom.metasprites[mimicMetasprite].sprites.length; frameNum++) {
+    for (let spriteNum = 0; spriteNum < rom.metasprites[mimicMetasprite].sprites[frameNum].length; spriteNum++) {
+      let sprite = rom.metasprites[mimicMetasprite].sprites[frameNum][spriteNum];
+      // 0x40 = PPU addr base (NOTE: The mimic adds $40 by default, see the value loaded into $320)
+      // 0x3a = new chest sprite location
+      // 0xb3 = original mimic starting tile
+      if (sprite[0] != unused) {
+        rom.metasprites[mimicMetasprite].sprites[frameNum][spriteNum][3] = (sprite[3] - 0xb3) + 0x3a;
+      }
+    }
+  }
+
+  const recoverMetasprite = 0xcb;
+  rom.metasprites[recoverMetasprite].sprites.forEach(frame => {
+    for (let i = 0; i < frame.length; i++) {
+      let sprite = frame[i];
+      if (sprite[0] != unused) {
+        let newTile = moveRecoverAddress.get(sprite[3] & 0x3f);
+        // 0x40 = PPU addr base
+        // 0x3a = new chest sprite location
+        sprite[3] = 0x40 + newTile!;
+      }
+    }
+  });
+
+}
+
 // There are a few metatiles that have incorrect behavior (one of
 // the pillar tiles in the crypt tileset and a corner tile in the
 // cave tileset), which allows flying through them.  The crypt tile
@@ -1343,4 +1477,24 @@ function hardcoreMode(rom: Rom) {
   for (const loc of rom.locations) {
     loc.checkpoint = loc.saveable = false;
   }
+}
+
+function fixWildWarp(rom: Rom) {
+  // Swap out underground channel for ESI 2, since the former doesn't
+  // actually allow you to move (without flight), but our logic can't
+  // account for that fact - so it's a softlock risk if progression
+  // is on the sea but the player doesn't have any other access.
+  replace(rom.wildWarp.locations, 0x64, 0x69);
+}
+
+function remove<T>(arr: T[], elem: T): void {
+  const index = arr.indexOf(elem);
+  if (index < 0) throw new Error(`Could not find element ${elem} in ${arr}`);
+  arr.splice(index, 1);
+}
+
+function removeIf<T>(arr: T[], pred: (elem: T) => boolean): void {
+  const index = arr.findIndex(pred);
+  if (index < 0) throw new Error(`Could not find element in ${arr}`);
+  arr.splice(index, 1);
 }

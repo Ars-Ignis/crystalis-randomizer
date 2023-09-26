@@ -1,6 +1,6 @@
 import {Module} from '../asm/module';
 import {Rom} from '../rom';
-import {Address, Segment, tuple} from './util';
+import { Address, exportLabel, exportValue, Segment, tuple} from './util';
 
 // List of town warp locations.
 export class TownWarp {
@@ -18,14 +18,10 @@ export class TownWarp {
   write(): Module[] {
     const a = this.rom.assembler();
     ADDRESS.loc(a);
-    a.label('TownWarpTable');
+    exportLabel(a, 'TownWarpTable');
     a.byte(...this.locations);
-    a.org(0xdc8c);
-    a.instruction('lda', 'TownWarpTable,y');
-    a.org(0xd5c9);
-    a.instruction('lda', '#' + this.thunderSwordWarp[0]);
-    a.org(0xd5cd);
-    a.instruction('lda', '#' + this.thunderSwordWarp[1]);
+    exportValue(a, 'thunderSwordWarpLocation', this.thunderSwordWarp[0]);
+    exportValue(a, 'thunderSwordWarpEntrance', this.thunderSwordWarp[1]);
     return [a.module()];
   }
 }

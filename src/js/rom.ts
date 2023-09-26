@@ -4,7 +4,7 @@ import {Linker} from './asm/linker';
 import {Module} from './asm/module';
 import {AdHocSpawn} from './rom/adhocspawn';
 //import {Areas} from './rom/area.js';
-import {BossKill} from './rom/bosskill';
+import {BossKills} from './rom/bosskill';
 import {Bosses} from './rom/bosses';
 import {CoinDrops} from './rom/coindrops';
 import {Flags} from './rom/flags';
@@ -14,7 +14,7 @@ import {ItemGets} from './rom/itemget';
 import {Locations} from './rom/location';
 import {Messages} from './rom/messages';
 import {Metascreens} from './rom/metascreens';
-import {Metasprite} from './rom/metasprite';
+import {Metasprites} from './rom/metasprite';
 import {Metatileset, Metatilesets} from './rom/metatileset';
 import {Monster} from './rom/monster';
 import {Npcs} from './rom/npc';
@@ -35,12 +35,11 @@ import {TileAnimation} from './rom/tileanimation';
 import {TileEffects} from './rom/tileeffects';
 import {Tilesets} from './rom/tileset';
 import {TownWarp} from './rom/townwarp';
-import {Trigger} from './rom/trigger';
-import {Segment, hex, seq, free} from './rom/util';
+import {Trigger, Triggers} from './rom/trigger';
+import {hex, seq} from './rom/util';
 import {WildWarp} from './rom/wildwarp';
 import {UnionFind} from './unionfind';
-
-const {$0e, $0f, $10} = Segment;
+import { Cpu } from './asm/cpu';
 
 export type ModuleId = symbol & {__moduleId__: never};
 export const ModuleId = (name: string) => Symbol(name) as ModuleId;
@@ -83,7 +82,7 @@ export class Rom {
   readonly screens: Screens;
   readonly tilesets: Tilesets;
   readonly tileEffects: TileEffects[];
-  readonly triggers: Trigger[];
+  readonly triggers: Triggers;
   readonly patterns: Patterns;
   readonly palettes: Palette[];
   readonly locations: Locations;
@@ -93,14 +92,14 @@ export class Rom {
   readonly objects: Objects;
   readonly adHocSpawns: AdHocSpawn[];
   readonly metascreens: Metascreens;
-  readonly metasprites: Metasprite[];
+  readonly metasprites: Metasprites;
   readonly metatilesets: Metatilesets;
   readonly itemGets: ItemGets;
   readonly items: Items;
   readonly shops: Shops;
   readonly slots: Slots;
   readonly npcs: Npcs;
-  readonly bossKills: BossKill[];
+  readonly bossKills: BossKills;
   readonly bosses: Bosses;
   readonly wildWarp: WildWarp;
   readonly townWarp: TownWarp;
@@ -189,7 +188,7 @@ export class Rom {
     this.screens = new Screens(this);
     this.metatilesets = new Metatilesets(this);
     this.metascreens = new Metascreens(this);
-    this.triggers = seq(0x43, i => new Trigger(this, 0x80 | i));
+    this.triggers = new Triggers(this);
     this.patterns = new Patterns(this);
     this.palettes = seq(0x100, i => new Palette(this, i));
     this.locations = new Locations(this);
@@ -198,7 +197,7 @@ export class Rom {
     this.objectActions = new ObjectActions(this);
     this.objects = new Objects(this);
     this.adHocSpawns = seq(0x60, i => new AdHocSpawn(this, i));
-    this.metasprites = seq(0x100, i => new Metasprite(this, i));
+    this.metasprites = new Metasprites(this);
     this.messages = new Messages(this);
     this.telepathy = new Telepathy(this);
     this.itemGets = new ItemGets(this);
@@ -206,7 +205,7 @@ export class Rom {
     this.shops = new Shops(this); // NOTE: depends on locations and objects
     this.slots = new Slots(this);
     this.npcs = new Npcs(this);
-    this.bossKills = seq(0xe, i => new BossKill(this, i));
+    this.bossKills = new BossKills(this);
     this.wildWarp = new WildWarp(this);
     this.townWarp = new TownWarp(this);
     this.coinDrops = new CoinDrops(this);
@@ -335,7 +334,7 @@ export class Rom {
 
   assembler(): Assembler {
     // TODO - consider setting a segment prefix
-    return new Assembler();
+    return new Assembler(Cpu.P02, {overwriteMode: 'require'});
   }
 
   writeData(data = this.prg) {
@@ -351,20 +350,6 @@ export class Rom {
     //writer.alloc(0x193f9, 0x1ac00);
     // ObjectData (index at 1ac00..1ae00)
     //writer.alloc(0x1ae00, 0x1bd00); // save 512 bytes at end for some extra code
-    const a = this.assembler();
-    // NpcSpawnConditions
-    free(a, $0e, 0x877a, 0x895d);
-    // NpcDialog
-    free(a, $0e, 0x8ae5, 0x98f4);
-    // ItemGetData (to 1e065) + ItemUseData
-    free(a, $0e, 0x9de6, 0xa000);
-    free(a, $0f, 0xa000, 0xa106);
-    // TriggerData
-    // NOTE: There's some free space at 1e3c0..1e3f0, but we use this for the
-    // CheckBelowBoss triggers.
-    free(a, $0f, 0xa200, 0xa3c0);
-    // ItemMenuName
-    free(a, $10, 0x911a, 0x9468);
 
     // keep item $49 "        " which is actually used somewhere?
     // writer.alloc(0x21471, 0x214f1); // TODO - do we need any of this?
@@ -385,7 +370,7 @@ export class Rom {
     //   writer.alloc(0x1da4c, 0x1db00); // existing main table is here.
     // }
 
-    const modules = [...this.modules.values(), a.module()];
+    const modules = [...this.modules.values()];
     const writeAll = (writables: Iterable<{write(): Module[]}>) => {
       for (const w of writables) {
         modules.push(...w.write());
@@ -394,17 +379,18 @@ export class Rom {
     modules.push(...this.locations.write());
     modules.push(...this.objects.write());
     writeAll(this.hitboxes);
-    writeAll(this.triggers);
+    modules.push(...this.triggers.write());
     modules.push(...this.npcs.write());
-    writeAll(this.tilesets);
+    modules.push(...this.tilesets.write());
     writeAll(this.tileEffects);
     writeAll(this.adHocSpawns);
     modules.push(...this.itemGets.write());
     modules.push(...this.slots.write());
     modules.push(...this.items.write());
     modules.push(...this.shops.write());
-    writeAll(this.bossKills);
+    modules.push(...this.bossKills.write());
     writeAll(this.patterns);
+    modules.push(...this.metasprites.write());
     modules.push(...this.wildWarp.write());
     modules.push(...this.townWarp.write());
     modules.push(...this.coinDrops.write());

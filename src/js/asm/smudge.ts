@@ -16,6 +16,12 @@ export function smudge(contents: string, cpu: Cpu, prg: Uint8Array): string {
 export function clean(contents: string, cpu: Cpu, prg: Uint8Array): string {
   return new Cleaner(cpu, prg).clean(contents);
 }
+export type SmudgeFunction = (arg: string) => Promise<string>;
+export namespace SmudgeFuntion {
+  export function forKnownPrg(prg: Uint8Array, cpu = Cpu.P02): SmudgeFunction {
+    return (contents) => Promise.resolve(smudge(contents, cpu, prg));
+  }
+}
 
 // Smudging is pretty easy: we don't need to be clever about which bytes in the
 // rom to use for obfuscating.  We just deobfuscate based on whatever we see.
@@ -330,6 +336,18 @@ class Cleaner {
     if ((match = /^(?:\s*[-+]+:?|\s*[@$a-z0-9_ ]*:)+\s*/i.exec(line))) {
       this.pushStr(match[0]);
       line = line.substring(match[0].length);
+    }
+
+    // Look for an assignment
+    if ((match = /^(\s*[a-z0-9_]+\s*=\s*)([$%]?[0-9a-f]+)(\s*(?:;.*)?\n?)$/i.exec(line))) {
+      const value = parseNum(match[2]);
+      if (value != null) {
+        this.pushStr(match[1]);
+        const mod = match[2].startsWith('$') ? '' : match[2].startsWith('%') ? ':b' : ':d';
+        this.push(new CleanData(match[2], [value], mod));
+        if (match[3]) this.pushStr(match[3]);
+        return;
+      }
     }
 
     // Look for a .byte or .word directive.

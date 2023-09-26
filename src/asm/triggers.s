@@ -14,9 +14,11 @@
 ;;;     (itemget.s) and other things.
 ;;;  7. Refactor ivory statue slightly (maybe just freeing space?)
 ;;;  8. Combine bow-use actions into a single script
+;;;  9. Allow arbitrary item to be Aryllis turn-in (Change required to use)
 
 .segment "0e", "0f"
 
+;;; Patch the end of ItemUse to check for a few more items.
 .org $834d
   jmp PatchTradeInItem
 
@@ -245,7 +247,6 @@ DestroyStatue:
   sta $10
   jmp $c25d ; LoadOneObjectDataInternal
 
-
 .org $d7fd ; itemuse action jump 1c - statue of onyx -> akahana
   jsr GrantItemFromTable
   nop
@@ -259,3 +260,8 @@ DestroyStatue:
 
 .org $d853
   jsr Jmp11
+
+;;; Aryllis turn-in item check
+.import ARYLLIS_WANT
+.org $d4b4
+  cmp #(ARYLLIS_WANT - $1c)

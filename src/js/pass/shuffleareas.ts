@@ -6,6 +6,11 @@
 // pairs of exits, maintaining a graph of areas.  By defining the
 // areas coarser or finer, we can control the craziness.
 
+// TODO - can we set up an assumed-fill algorithm here where we
+// start by assuming access to all (disconnected) areas, and then
+// we pick an area and remove access to it until it's connected to
+// an area we do have access to?  What would that end up doing?
+
 import { Random } from '../random';
 import { Rom } from '../rom';
 import { ExitSpec, Pos } from '../rom/metalocation';
@@ -336,7 +341,7 @@ export function shuffleAreas(rom: Rom, flags: FlagSet, random: Random) {
     exit2.reverse = rev1;
     rev1.reverse = exit2;
     [count, traversal, pool] = traverse();
-    if (iterations < -10) debugger;
+    //if (iterations < -10) debugger;
   }
 
   for (const exit of exits.values()) {

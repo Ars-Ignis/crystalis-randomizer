@@ -1,5 +1,8 @@
 // General utilities for rom package.
 
+import { Expr } from '../asm/expr';
+import { refsBySymbol } from '../data';
+
 export function upperCamelToSpaces(upperCamel: string): string {
   return upperCamel.replace(/([a-z])([A-Z0-9])/g, '$1 $2')
       .replace(/Of/g, 'of')
@@ -552,6 +555,8 @@ export class Segment {
   static readonly $19 = new Segment('19', 0x19, 0xa000);
   static readonly $1a = new Segment('1a', 0x1a, 0x8000);
   static readonly $1b = new Segment('1b', 0x1b, 0xa000);
+  static readonly $1c = new Segment('1a', 0x1c, 0x8000);
+  static readonly $1d = new Segment('1b', 0x1d, 0xa000);
 
   static readonly $fe = new Segment('fe', 0x1e, 0xc000);
   static readonly $ff = new Segment('ff', 0x1f, 0xe000);
@@ -623,11 +628,12 @@ export class Address {
 }
 
 interface IAssembler {
-  segment(...s: string[]): void;
+  segment(...s: (string|Segment)[]): void;
   org(o: number, n?: string): void;
   free(size: number): void;
   reloc(name?: string): void;
   label(name: string): void;
+  assign(name: string, value: number|Expr): void;
   export(name: string): void;
 }
 
@@ -637,13 +643,41 @@ export function free(a: IAssembler, seg: Segment, start: number, end: number) {
   a.free(end - start);
 }
 
-export function relocExportLabel(a: IAssembler, seg: Segment[], name: string) {
-  a.segment(...seg.map(s => s.name));
+export function exportLabel(a: IAssembler, name: string) {
+  a.label(name);
+  a.export(name);
+}
+
+export function relocExportLabel(a: IAssembler, name: string,
+                                 seg?: Array<string|Segment>) {
+  if (seg?.length) a.segment(...seg);
   a.reloc(name);
   a.label(name);
   a.export(name);
 }
 
+export function exportValue(a: IAssembler, name: string, value: number|Expr) {
+  a.assign(name, value);
+  a.export(name);
+}
+
 export function cloneArray<T extends ReadonlyArray<any>>(arr: T): Mutable<T> {
   return [...arr] as Mutable<T>;
+}
+
+export function readValue(symbol: string, prg: Uint8Array, seg?: Segment): number {
+  const values = new Set<number>();
+  if (!refsBySymbol().get(symbol)?.length) throw new Error(`No mappings for ${symbol}`);
+  for (const ref of refsBySymbol().get(symbol) || []) {
+    const val = prg[ref.offset] | (ref.bytes === 2 ? prg[ref.offset + 1] << 8 : 0);
+    const inv = Expr.invert(ref.expr, symbol, val);
+    if (inv != null) values.add(inv);
+  }
+  if (values.size !== 1) {
+    throw new Error(`Could not determine unique value for ${symbol}: got [${
+        [...values].map(x => `$${x.toString(16).padStart(2, '0')}`).join(', ')
+        }]`);
+  }
+  const result = values[Symbol.iterator]().next().value;
+  return seg ? result - seg.org + seg.offset : result;
 }

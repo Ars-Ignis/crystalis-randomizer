@@ -66,6 +66,7 @@ export namespace Expr {
     return t(expr);
   }
 
+  // TODO - does this actually work???
   export function traversePost(expr: Expr, f: Rec): Expr {
     return traverse(expr, (expr, rec) => f(rec(expr)));
   }
@@ -123,6 +124,107 @@ export namespace Expr {
       case '&&': return binary(expr, (a, b) => a && b);
       case '||': return binary(expr, (a, b) => a || b);
       case '.xor': return binary(expr, (a, b) => !a && b || !b && a || 0);
+      default: throw new Error(`Unknown operator: ${expr.op}`);
+    }
+  }
+
+  /** Strip source info from the expression. */
+  export function strip(expr: Expr) {
+    const out = {...expr};
+    if (out.args) out.args = out.args.map(strip);
+    delete out.source;
+    return out;
+  }
+
+  /** Searches for symbols in the expression. */
+  export function symbols(expr: Expr, out: string[] = []): string[] {
+    // NOTE: we don't dedupe with a set because it matters if a symbol
+    // shows up twice in the same expression (i.e. it won't be invertible).
+    for (const arg of expr.args || []) {
+      symbols(arg, out);
+    }
+    if (expr.op === 'sym' && expr.sym) out.push(expr.sym);
+    return out;
+  }
+
+  /** Attempts to solve the the given symbol given the final result. */
+  export function invert(expr: Expr, sym: string, result: number): number|undefined {
+    // TODO - make Solver an object that can keep track of extra info,
+    // such as combining a < and a > byte to get a full word, or even
+    // possibly keeping track of bank?
+    switch (expr.op) {
+      case 'sym':
+        return expr.sym === sym ? result : undefined; // found what we're looking for
+      case '.move':
+      case 'im':
+      case '.max':
+      case '.min':
+      case 'num':
+        return undefined; // can't handle these
+      default: // fall through to later checks
+    }
+
+    // Special case for unaries
+    if (expr.args?.length === 1) {
+      const arg = expr.args[0];
+      switch (expr.op) {
+        case '+': return invert(arg, sym, result);
+        case '-': return invert(arg, sym, -result);
+        case '~': return invert(arg, sym, ~result);
+        // These are slightly lossy
+        case '!': return result === +!!result ? invert(arg, sym, result) : undefined;
+        case '<': return result === (result & 0xff) ? invert(arg, sym, result) : undefined;
+        case '>': return result === (result & 0xff) ? invert(arg, sym, result << 8) : undefined;
+        case '^': return undefined;
+        default: throw new Error(`Unknown unary operator: ${expr.op}`);
+      }
+    }
+
+    switch (expr.op) {
+      case '.mod':
+      case '&':
+      case '|':
+      case '<':
+      case '<=':
+      case '>':
+      case '>=':
+      case '=':
+      case '<>':
+      case '&&':
+      case '||':
+      case '.xor':
+        return undefined;
+    }
+    // This only leaves the (mostly) invertible operations, but some care
+    // about the order, so we need to figure out which arg is constant.
+    const leftExpr = evaluate(expr.args![0]);
+    const rightExpr = evaluate(expr.args![1]);
+    const left = leftExpr.op === 'num' ? leftExpr.num! : undefined;
+    const right = rightExpr.op === 'num' ? rightExpr.num! : undefined;
+    if ((left == null) === (right == null)) return undefined; // exactly 1 null
+    const knownArg = (left || right)!;
+    const unknownArg = left == null ? leftExpr : rightExpr;
+    switch (expr.op) {
+      case '+': return invert(unknownArg, sym, result - knownArg);
+      case '-': return invert(unknownArg, sym,
+                              left == null ? result + knownArg : knownArg - result);
+      case '*': return result % knownArg === 0 ?
+                           invert(unknownArg, sym, result / knownArg) : undefined;
+      case '/':
+        // result = x / known => x = result * known
+        if (left == null) return invert(unknownArg, sym, result * knownArg);
+        // result = known / x => x = known / result, must go evenly
+        if (knownArg % result !== 0) return undefined;
+        return invert(unknownArg, sym, knownArg / result);
+      case '^': return invert(unknownArg, sym, result ^ knownArg);
+      case '<<':
+        if (right == null) return undefined;
+        if (((result >>> right) << right) !== result) return undefined;
+        return invert(unknownArg, sym, result >>> right);
+      case '>>':
+        if (right == null) return undefined;
+        if (((knownArg >>> right) << right) !== knownArg) return undefined;
+        return invert(unknownArg, sym, result << right);
       default: throw new Error(`Unknown operator: ${expr.op}`);
     }
   }

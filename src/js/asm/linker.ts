@@ -1,7 +1,7 @@
 import { Assembler } from './assembler';
 import { Cpu } from './cpu';
 import { Expr } from './expr';
-import { Chunk, Module, Segment, Substitution, Symbol } from './module';
+import { Chunk, Module, OverwriteMode, Segment, Substitution, Symbol } from './module';
 import { Preprocessor } from './preprocessor';
 import { Token } from './token';
 import { Tokenizer } from './tokenizer';
@@ -108,8 +108,8 @@ class LinkSegment {
     this.bank = segment.bank ?? 0;
     this.addressing = segment.addressing ?? 2;
     this.size = segment.size ?? fail(`Size must be specified: ${name}`);
-    this.offset = segment.offset ?? fail(`OFfset must be specified: ${name}`);
-    this.memory = segment.memory ?? fail(`OFfset must be specified: ${name}`);
+    this.offset = segment.offset ?? fail(`Offset must be specified: ${name}`);
+    this.memory = segment.memory ?? fail(`Offset must be specified: ${name}`);
   }
 
   // offset = org + delta
@@ -146,6 +146,8 @@ class LinkChunk {
   private _offset?: number;
   private _segment?: LinkSegment;
 
+  private readonly _overwrite: OverwriteMode;
+
   constructor(readonly linker: Link,
               readonly index: number,
               chunk: Chunk<Uint8Array>,
@@ -161,6 +163,7 @@ class LinkChunk {
     this.asserts = (chunk.asserts || [])
         .map(e => translateExpr(e, chunkOffset, symbolOffset));
     if (chunk.org) this._org = chunk.org;
+    this._overwrite = chunk.overwrite || 'allow';
   }
 
   get org() { return this._org; }
@@ -193,10 +196,11 @@ class LinkChunk {
     if (this._org >= segment.memory + segment.size) {
       throw new Error(`Chunk does not fit in segment ${segment.name}`);
     }
-    this.place(this._org, segment);
+    this.place(this._org, segment, this._overwrite);
   }
 
-  place(org: number, segment: LinkSegment) {
+  // NOTE: overwrite is only passed for direct placements!
+  place(org: number, segment: LinkSegment, overwrite?: OverwriteMode) {
     this._org = org;
     this._segment = segment;
     const offset = this._offset = org + segment.delta;
@@ -221,6 +225,31 @@ class LinkChunk {
       }
     } else {
       full.set(offset, data);
+    }
+
+    if (overwrite && data.length) {
+      // Regardless of the check mode, it's a direct write so record it
+      let overwritten: boolean|null = false;
+      const [next] = this.linker.written.tail(offset);
+      if (next?.[0] <= offset && next[1] >= offset + data.length) {
+        overwritten = true;
+      } else if (next?.[0] < offset + data.length) {
+        overwritten = null;
+      }
+      let error = '';
+      if (overwrite === 'require' && overwritten !== true) {
+        error = `required to overwrite ${data.length} bytes but did not.`;
+      } else if (overwrite === 'forbid' && overwritten !== false) {
+        error = `forbidden to overwrite ${data.length} but did anyway.`;
+      }
+      if (error) {
+        error = `Chunk at ${segment.name}:$${
+            org.toString(16).padStart(4, '0')} (offset $${
+            offset.toString(16).padStart(5, '0')} was ${error}`;
+        if (!NO_THROW) throw new Error(error);
+        if (!QUIET) console.error(error);
+      }
+      this.linker.written.add(offset, offset + data.length);
     }
 
     // Retry the follow-ons
@@ -376,10 +405,12 @@ function translateSymbol(s: Symbol, dc: number, ds: number): Symbol {
 class Link {
   data = new SparseByteArray();
   orig = new SparseByteArray();
+
   // Maps symbol to symbol # // [symbol #, dependent chunks]
   exports = new Map<string, number>(); // readonly [number, Set<number>]>();
   chunks: LinkChunk[] = [];
   symbols: Symbol[] = [];
+  written = new IntervalSet();
   free = new IntervalSet();
   rawSegments = new Map<string, Segment[]>();
   segments = new Map<string, LinkSegment>();
@@ -487,6 +518,10 @@ class Link {
         const free = segment.free;
         // Add the free space
         for (const [start, end] of free || []) {
+          if (DEBUG_SEGMENTS.has(name)) {
+            console.log(`Free(${name}): ${(start + s.delta).toString(16)
+                }..${(end + s.delta).toString(16)} (${end - start} bytes)`);
+          }
           this.free.add(start + s.delta, end + s.delta);
           this.data.splice(start + s.delta, end - start);
         }
@@ -531,7 +566,9 @@ class Link {
     //   - gets 
 
     const chunks = [...this.chunks];
-    chunks.sort((a, b) => b.size - a.size);
+    // NOTE: place the less-flexible chunks (bigger, fewer segments) first
+    chunks.sort((a, b) => (a.segments.length - b.segments.length) ||
+                          (b.size - a.size));
 
     for (const chunk of chunks) {
       chunk.resolveSubs();
@@ -652,6 +689,12 @@ class Link {
         }
       }
       if (found != null) {
+        if (DEBUG_SEGMENTS.has(segment.name)) {
+          console.log(`Placement(${chunk.segments.map(s => s).join(',')
+              } => ${segment.name}): ${
+              chunk.name || 'unnamed'} (${chunk.data.length} bytes) at ${
+              (found - segment.delta).toString(16)}`);
+        }
         // found a region
         chunk.place(found - segment.delta, segment);
         // this.free.delete(f0, f0 + size);
@@ -768,4 +811,7 @@ class Link {
   }
 }
 
+const DEBUG_SEGMENTS = new Set(["1a", "1b", "fe", "ff"]);
 const DEBUG = false;
+const NO_THROW = false; // for overwrite
+const QUIET = false; // temporary for overwrite

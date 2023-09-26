@@ -3,6 +3,32 @@
 
 .segment "0f", "fe", "ff"
 
+.ifdef _OOPS_ALL_MIMICS
+
+; Patch the ObjectActionJump_6f to add a check for if we killed insect,
+; add a flag to reset the screen mode when touching the chest, and then
+; also move the chest down 16 px so it doesn't get trapped in the invisible
+; wall when it spawns
+
+; The patch point at $b825 is already used in stat tracking for
+; setting the time stamp for boss death, so use a nearby one instead
+.org $b82a
+  jsr MoveInsectBossChest
+
+.reloc
+MoveInsectBossChest:
+  cpy #2 ; Insect boss
+  bne +
+    lda #$a0
+    sta $b0,x
+    lda #INSECT_MIMIC
+    sta $06c0,x
+  ; finally run the patched instruction
++ lda $b96b,y ; BossKillDataTable
+  rts
+
+.endif ; _OOPS_ALL_MIMICS
+
 ;; Prevent soft-lock when encountering sabera and mado from reverse
 ;; Returns N (negative/false) if player is not on same screen as boss
 ;; and is at row 9, which causes the caller to return without
@@ -124,46 +150,9 @@ SpawnDraygon:
   sta $41
 + rts
 
-;;; Boss chest action jump has some special handling for bosskill 3 (rage)
-;;; which is instead used for Kensu dropping a chest.  We'll rearrange the
-;;; special case to consolidate.
-;; .org $1f766
-;;   lda #$8d
-;;   sta $03a0,x
-;;   lda #$aa
-;;   sta $0300,x
-;;   lda $0600,x
-;;   asl
-;;   asl
-;;   ;clc
-;;   adc $0600,x
-;;   tay
-;;   cpy #$0f
-.org $b76b
-  beq @HandleKensuChestInit
-.org $b77b
-  clc
-  nop
-@HandleKensuChestInit: ; if we jumped here then C is set
-  jsr HandleKensuChest
-
-.org $b7d0
-  .byte $00  
-
 ;;; We moved the LV(menu) display from 06 to 0e so display that instead
 .org $bd27
   lda #$0e
-
-.segment "0f"    ; NOTE: 0e does not work here.
-.reloc
-HandleKensuChest:
-  lda #$8d
-  sta $03a0,x
-  bcc +
-   lda #$09
-   sta $033e
-+ rts
-
 
 .segment "1a", "1b", "fe", "ff" ;.bank $34000 $8000:$4000
 
@@ -181,3 +170,8 @@ MaybeSpawnInsect:
     lda #$e2
     sta $04ad
 + rts
+
+;;; Reset programmatically by bosses.ts
+.import bossMusic_vampire, bossMusic_insect, bossMusic_kelbesque, \
+        bossMusic_sabera, bossMusic_mado, bossMusic_karmine, \
+        bossMusic_draygon1, bossMusic_draygon2, bossMusic_dyna

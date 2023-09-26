@@ -436,6 +436,8 @@ export class IntervalSet implements Iterable<readonly [number, number]> {
     this.data.splice(s, e - s, ...entries);
   }
 
+  // Given a point, returns an iterator over the intervals to the
+  // right of that point (possibly slicing any containing interval).
   tail(x: number): IterableIterator<readonly [number, number]> {
     let index = this._find(x);
     if (index < 0) index = ~index;
@@ -449,4 +451,14 @@ export class IntervalSet implements Iterable<readonly [number, number]> {
       },
     };
   }
+}
+
+const map = new WeakMap<object, number>();
+let index = 0;
+export function hash(o: object): string {
+  let id = map.get(o);
+  if (!id) {
+    map.set(o, id = ++index);
+  }
+  return `${o.constructor.name || 'object'}@${id.toString(36)}`;
 }

@@ -10,7 +10,7 @@ import { CharacterSet, Sprite, parseNssFile } from './characters';
 // global state
 let flags;
 let seed;
-let rom;
+export let rom;
 let romName;
 let race = false;
 let debug = false;
@@ -231,9 +231,10 @@ const shuffleRom = async (seed) => {
         await patch.shuffle(
           orig, seed, flagsClone, [sprite], log, progressTracker);
   } catch (err) {
-    document.body.classList.add('failure');
-    const errorText = document.getElementById('error-text');
-    errorText.textContent = err.stack;
+    const invalid = err.name === 'UsageError';
+    document.body.classList.add(invalid ? 'invalid' : 'failure');
+    const errorText = document.getElementById(invalid ? 'invalid-text' : 'error-text');
+    errorText.textContent = invalid ? err.message : err.stack;
     errorText.parentElement.parentElement.scrollIntoViewIfNeeded();
     document.getElementById('checksum').textContent = 'SHUFFLE FAILED!';
     throw err;
@@ -347,6 +348,7 @@ const makeCheckbox = (el) => {
 
 const updateDom = () => {
   document.body.classList.remove('failure');
+  document.body.classList.remove('invalid');
   for (const cb of document.querySelectorAll('input[data-flag]')) {
     const flag = cb.dataset['flag'];
     const mode = flags.get(flag);
@@ -420,28 +422,6 @@ const loadRomFromStorage = () => {
   });
 };
 
-const reloadSpritesFromStorage = () => {
-  const selectedSimeaSprite = window['localStorage'].getItem('simea-replacement');
-  const savedSpritesStr = window['localStorage'].getItem('simea-replacement-custom') || "{}";
-  const savedSprites = JSON.parse(savedSpritesStr);
-  // load any saved sprites from storage
-  const savedSpritesDiv = document.getElementById('simea-sprite-custom');
-  savedSpritesDiv.innerHTML = '';
-  for (let [filename, sprite] of Object.entries(savedSprites)) {
-    // Update the character set mapping for this custom sprite
-    CharacterSet.get("simea").set(sprite.name, Promise.resolve(sprite));
-
-    render.renderCustomCharacter(savedSpritesDiv, sprite)
-    const thisRadio = document.getElementById(`simea-replacement-${sprite.name}`);
-    thisRadio.addEventListener('change', (event) => {
-      window['localStorage'].setItem('simea-replacement', event.target.value);
-    });
-    if (thisRadio.value == selectedSimeaSprite) {
-      thisRadio.checked = true;
-    }
-  }
-}
-
 const loadSpriteSelectionsFromStorage = () => {
   const selectedSimeaSprite = window['localStorage'].getItem('simea-replacement');
 
@@ -457,7 +437,7 @@ const loadSpriteSelectionsFromStorage = () => {
     })
   })
 
-  reloadSpritesFromStorage();
+  render.reloadSpritesFromStorage();
 
   // add a handler for the sprite upload
   const upload = document.getElementById('upload-sprite');
@@ -466,7 +446,7 @@ const loadSpriteSelectionsFromStorage = () => {
     const reader = new FileReader();
     reader.addEventListener('loadend', () => {
       const savedSpritesStr = window['localStorage'].getItem('simea-replacement-custom') || "{}";
-      const savedSprites = JSON.parse(savedSpritesStr);
+      const savedSprites = JSON.parse(savedSpritesStr, addMapRestorement);
       const nssdata = reader.result;
       // Get rid of the extension and replace any _ with spaces
       const name = file.name.replace(/\.[^/.]+$/, "").replaceAll(/_/g, " ");
@@ -474,9 +454,9 @@ const loadSpriteSelectionsFromStorage = () => {
         savedSprites[name] = sprite;
         // uncomment this and the img tag to debug spritesheet loading
         // generatePreviewImage(sprite.nssdata).then(img => document.getElementById('test-spritesheet-upload').src = img);
-        window['localStorage'].setItem('simea-replacement-custom', JSON.stringify(savedSprites));
+        window['localStorage'].setItem('simea-replacement-custom', JSON.stringify(savedSprites, addMapReplacement));
         // reload custom sprites
-        reloadSpritesFromStorage();
+        render.reloadSpritesFromStorage();
       });
       // Reset the input to allow reuploading the same file multiple times for development
       upload.value = "";
@@ -485,7 +465,27 @@ const loadSpriteSelectionsFromStorage = () => {
   });
 }
 
-const download = (data, name) => {
+export function addMapReplacement(key, value) {
+  if(value instanceof Map) {
+    return {
+      dataType: 'Map',
+      value: Array.from(value.entries()), // or with spread: value: [...value]
+    };
+  } else {
+    return value;
+  }
+}
+
+export function addMapRestorement(key, value) {
+  if(typeof value === 'object' && value !== null) {
+    if (value.dataType === 'Map') {
+      return new Map(value.value);
+    }
+  }
+  return value;
+}
+
+export const download = (data, name) => {
   const a = document.createElement('a');
   document.body.appendChild(a);
   a.style = 'display: none';

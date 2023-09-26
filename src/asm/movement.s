@@ -25,9 +25,13 @@
 .pushseg "fe", "ff"
 .reloc
 CheckRabbitBoots:
+; In charge shot only mode, we want to have the charge while walking enabled
+; even without rabbit boots
+.ifndef _CHARGE_SHOT_ONLY
   lda EquippedPassiveItem
   cmp #ITEM_RABBIT_BOOTS ; require rabbit boots
   bne +
+.endif
   lda $06c0
   cmp #$10 ; don't charge past level 2
   bcs +
@@ -36,6 +40,132 @@ CheckRabbitBoots:
 + pla
   pla
   jmp $9e39 ; 35e39
+.popseg
+
+.endif
+
+.ifdef _CHARGE_SHOT_ONLY
+; Timer of 30 frames
+.define Ctrl1CurrentDirection $49
+.define WARRIOR_RING_DELAY 30
+
+;; If we only have charge shot, buff rabbit boots to charge twice as fast while equipped
+.org $9e0d
+  jsr CheckRabbitBootsSpeedUp
+  nop
+
+.reloc
+CheckRabbitBootsSpeedUp:
+  lda EquippedPassiveItem
+  cmp #ITEM_RABBIT_BOOTS
+  bne +
+    lda #1
+    .byte $2c ; abs BIT instruction to skip the other load
+; its safe to BIT here as it turns into BIT $03a9 which doesn't have side effects on read
++ lda #3
+  and $08 ; GlobalCounter
+  rts
+
+;; Turn warrior ring into turret mode
+.org $9c8d ; CheckWarriorRing
+  jsr CheckIfStandingStillForWarriorRing
+  nop
+
+.reloc
+CheckIfStandingStillForWarriorRing:
+  bne @Exit
+  ; The warrior ring is equiped so now check to see if we've stood still for long enough
+  lda PlayerStandingTimer
+  cmp #WARRIOR_RING_DELAY
+  bne +
+    inc $10
+    bpl @Exit
++
+  ; check our stab counter, every 3rd stab gets a free shot
+  lda WarriorRingStabCounter
+  cmp #3-1 ; minus 1 to account for bpl being branch greater than
+  bpl +
+    inc WarriorRingStabCounter
+    rts
++ inc $10
+  lda #0
+  sta WarriorRingStabCounter
+@Exit:
+  rts
+
+; Patch SwordSwingEnd to not reset charge amount if warrior ring is equipped
+; and we are below the full charge amount
+; .org $9cd1
+;   jmp SwordSwingEndCheckIfWarriorRingEquipped
+; FREE_UNTIL $9cda
+; .reloc
+; SwordSwingEndCheckIfWarriorRingEquipped:
+;   lda EquippedPassiveItem
+;   cmp #$0f ; ITEM_WARRIOR_RING
+;   beq @HasWarriorRingEquipped
+; @ClearChargeAmount:
+;     lda #0
+;     sta $06c0 ; PlayerSwordChargeAmount
+;     beq @Exit
+; @HasWarriorRingEquipped:
+;   ; since we have the warrior ring equipped with charge mode on, we
+;   ; want to keep the sword charge after stab IF its not fully charged yet
+;   lda $06c0
+;   cmp #$08
+;   bcs @ClearChargeAmount
+;   lda #0
+; @Exit:
+;   sta $06c1
+;   rts
+
+; ; Patch Player action to remove the requirement to hold b to charge the sword
+; .org $9def
+;   jsr HoldBCheckIfWarriorRingEquipped
+;   nop
+
+; .reloc
+; HoldBCheckIfWarriorRingEquipped:
+;   lda $43 ; Controller 1
+;   and #$40
+;   bne :>rts
+;     ; if they aren't pressing b, see if we are increasing the warrior ring charge
+;     lda EquippedPassiveItem
+;     cmp #$0f ; ITEM_WARRIOR_RING
+;     bne +
+;       ; if they are holding the warrior ring check to add sword charge amount
+;       lda $08
+;       and #$03
+;       bne + ; $35e39
+;         lda $06c0 ; PlayerSwordChargeAmount
+;         cmp #$08
+;         bne + ; $35e22
+;           inc $06c0 ; PlayerSwordChargeAmount
+; +
+;   lda #0
+;   rts
+
+; Patch global counter to track how long a player is standing still for
+.org $f089 ; Near end of GlobalCounter processing
+  jsr UpdatePlayerStandingTimer
+.pushseg "fe", "ff"
+.reloc
+UpdatePlayerStandingTimer:
+  lda Ctrl1CurrentDirection ; $ff if still
+  bpl +
+    lda PlayerStandingTimer
+    cmp #WARRIOR_RING_DELAY
+    beq @Exit
+      clc
+      adc #1
+      .byte $2c ; Use bit to skip the lda #0
+      ; this is safe because it compiles to BIT $00a9 which has no side effects
++ ; player moved so reset timer
+  lda #0
+  sta PlayerStandingTimer
+@Exit:
+  ; Continue patched function
+  lda $071a
+  rts
 .popseg
 
 .endif

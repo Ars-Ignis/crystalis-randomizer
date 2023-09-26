@@ -337,7 +337,12 @@ export const breakLines = (str: string, len: number): string[] => {
   return out;
 };
 
-export class UsageError extends Error {}
+export class UsageError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'UsageError';
+  }
+}
 
 export class SuffixTrie<T> {
   readonly next = new Map<string, SuffixTrie<T>>();
@@ -726,6 +731,10 @@ export class Keyed<K extends number, V> implements Iterable<[K, V]> {
 
   values(): Iterator<V> {
     return this.data[Symbol.iterator]();
+  }
+
+  map<U>(func: (val: V, key: K) => U): U[] {
+    return this.data.map(func as (val: V, key: number) => U);
   }
 }
 

@@ -1,10 +1,10 @@
-import {Cpu} from './cpu';
-import {Expr} from './expr';
+import { assertNever } from '../util';
+import { Cpu } from './cpu';
+import { Expr } from './expr';
 import * as mod from './module';
-import {SourceInfo, Token, TokenSource} from './token';
-import {Tokenizer} from './tokenizer';
-import {assertNever} from '../util';
-
+import { SourceInfo, Token, TokenSource } from './token';
+import { Tokenizer } from './tokenizer';
+import { IntervalSet } from './util';
 type Chunk = mod.Chunk<number[]>;
 type Module = mod.Module;
 
@@ -140,6 +140,12 @@ class CheapScope extends BaseScope {
   }
 }
 
+export interface RefExtractor {
+  label?(name: string, addr: number, segments: readonly string[]): void;
+  ref?(expr: Expr, bytes: number, addr: number, segments: readonly string[]): void;
+  assign?(name: string, value: number): void;
+}
+
 export class Assembler {
 
   /** The currently-open segment(s). */
@@ -185,6 +191,9 @@ export class Assembler {
   /** All the chunks so far. */
   private chunks: Chunk[] = [];
 
+  /** Set of offsets definitely written/freed so far. */
+  private written = new IntervalSet();
+
   /** Currently active chunk */
   private _chunk: Chunk|undefined = undefined;
 
@@ -200,12 +209,26 @@ export class Assembler {
   /** Current source location, for error messages. */
   private _source?: SourceInfo;
 
+  /** Token for reporting errors. */
+  private errorToken?: Token;
+
+  /** Supports refExtractor. */
+  private _exprMap?: WeakMap<Expr, Expr> = undefined;
+
   constructor(readonly cpu = Cpu.P02, readonly opts: Assembler.Options = {}) {}
 
   private get chunk(): Chunk {
     // make chunk only when needed
     this.ensureChunk();
     return this._chunk!;
+  }
+
+  get exprMap() {
+    return this._exprMap || (this._exprMap = new WeakMap());
+  }
+
+  get overwriteMode() {
+    return this.opts.overwriteMode || 'allow';
   }
 
   private ensureChunk() {
@@ -218,12 +241,14 @@ export class Assembler {
       if (this._org != null) this._chunk.org = this._org;
       if (this._name) this._chunk.name = this._name;
       this.chunks.push(this._chunk);
+      this._chunk.overwrite = this.overwriteMode;
     }
   }
 
   definedSymbol(sym: string): boolean {
     // In this case, it's okay to traverse up the scope chain since if we
     // were to reference the symbol, it's guaranteed to be defined somehow.
+    if (this.globals.get(sym) === 'import') return true;
     let scope: Scope|undefined = this.currentScope;
     const unscoped = !sym.includes('::');
     do {
@@ -264,13 +289,30 @@ export class Assembler {
     return Expr.evaluate({op: 'num', num, meta});
   }
 
+  // Returns an expr resolving to a symbol name (e.g. a label)
+  symbol(name: string): Expr {
+    return Expr.evaluate(Expr.parseOnly([{token: 'ident', str: name}]));
+  }
+
+  where(): string {
+    if (!this._chunk) return '';
+    if (this.chunk.org == null) return '';
+    return `${this.chunk.segments.join(',')}:$${
+            (this.chunk.org + this.chunk.data.length).toString(16)}`;
+  }
+
   resolve(expr: Expr): Expr {
-    return Expr.traverse(expr, (e, rec) => {
+    const out = Expr.traverse(expr, (e, rec) => {
       while (e.op === 'sym' && e.sym) {
         e = this.resolveSymbol(e);
       }
       return Expr.evaluate(rec(e));
     });
+    if (this.opts.refExtractor?.ref && out !== expr) {
+      const orig = this.exprMap.get(expr) || expr;
+      this.exprMap.set(out, orig);
+    }
+    return out;
   }
 
   resolveSymbol(symbol: Expr): Expr {
@@ -422,6 +464,7 @@ export class Assembler {
     return {chunks, symbols, segments};
   }
 
+  // Assemble from a list of tokens
   line(tokens: Token[]) {
     this._source = tokens[0].source;
     if (tokens.length < 3 && Token.eq(tokens[tokens.length - 1], Token.COLON)) {
@@ -437,6 +480,7 @@ export class Assembler {
     }
   }
 
+  // Assemble from a token source
   tokens(source: TokenSource) {
     let line;
     while ((line = source.next())) {
@@ -444,6 +488,7 @@ export class Assembler {
     }
   }
 
+  // Assemble from an async token source
   async tokensAsync(source: TokenSource.Async): Promise<void> {
     let line;
     while ((line = await source.nextAsync())) {
@@ -453,27 +498,32 @@ export class Assembler {
 
   directive(tokens: Token[]) {
     // TODO - record line information, rewrap error messages?
-    switch (Token.str(tokens[0])) {
-      case '.org': return this.org(this.parseConst(tokens));
-      case '.reloc': return this.parseNoArgs(tokens), this.reloc();
-      case '.assert': return this.assert(this.parseExpr(tokens));
-      case '.segment': return this.segment(...this.parseSegmentList(tokens));
-      case '.byte': return this.byte(...this.parseDataList(tokens, true));
-      case '.res': return this.res(...this.parseResArgs(tokens));
-      case '.word': return this.word(...this.parseDataList(tokens));
-      case '.free': return this.free(this.parseConst(tokens), tokens[0]);
-      case '.segmentprefix': return this.segmentPrefix(this.parseStr(tokens));
-      case '.import': return this.import(...this.parseIdentifierList(tokens));
-      case '.export': return this.export(...this.parseIdentifierList(tokens));
-      case '.scope': return this.scope(this.parseOptionalIdentifier(tokens));
-      case '.endscope': return this.parseNoArgs(tokens), this.endScope();
-      case '.proc': return this.proc(this.parseRequiredIdentifier(tokens));
-      case '.endproc': return this.parseNoArgs(tokens), this.endProc();
-      case '.pushseg': return this.pushSeg(...this.parseSegmentList(tokens));
-      case '.popseg': return this.parseNoArgs(tokens), this.popSeg();
-      case '.move': return this.move(...this.parseMoveArgs(tokens));
+    this.errorToken = tokens[0];
+    try {
+      switch (Token.str(tokens[0])) {
+        case '.org': return this.org(this.parseConst(tokens, 1));
+        case '.reloc': return this.parseNoArgs(tokens, 1), this.reloc();
+        case '.assert': return this.assert(this.parseExpr(tokens, 1));
+        case '.segment': return this.segment(...this.parseSegmentList(tokens, 1));
+        case '.byte': return this.byte(...this.parseDataList(tokens, true));
+        case '.res': return this.res(...this.parseResArgs(tokens));
+        case '.word': return this.word(...this.parseDataList(tokens));
+        case '.free': return this.free(this.parseConst(tokens, 1));
+        case '.segmentprefix': return this.segmentPrefix(this.parseStr(tokens, 1));
+        case '.import': return this.import(...this.parseIdentifierList(tokens));
+        case '.export': return this.export(...this.parseIdentifierList(tokens));
+        case '.scope': return this.scope(this.parseOptionalIdentifier(tokens));
+        case '.endscope': return this.parseNoArgs(tokens, 1), this.endScope();
+        case '.proc': return this.proc(this.parseRequiredIdentifier(tokens));
+        case '.endproc': return this.parseNoArgs(tokens, 1), this.endProc();
+        case '.pushseg': return this.pushSeg(...this.parseSegmentList(tokens, 1));
+        case '.popseg': return this.parseNoArgs(tokens, 1), this.popSeg();
+        case '.move': return this.move(...this.parseMoveArgs(tokens));
+      }
+      this.fail(`Unknown directive: ${Token.nameAt(tokens[0])}`);
+    } finally {
+      this.errorToken = undefined;
     }
-    this.fail(`Unknown directive: ${Token.nameAt(tokens[0])}`);
   }
 
   label(label: string|Token) {
@@ -507,6 +557,10 @@ export class Assembler {
     if (!ident.startsWith('@')) {
       this.cheapLocals.clear();
       if (!this.chunk.name && !this.chunk.data.length) this.chunk.name = ident;
+      if (this.opts.refExtractor?.label && this.chunk.org != null) {
+        this.opts.refExtractor.label(
+            ident, this.chunk.org + this.chunk.data.length, this.chunk.segments);
+      }
     }
     this.assignSymbol(ident, false, expr, token);
     // const symbol = this.scope.resolve(str, true);
@@ -526,6 +580,10 @@ export class Assembler {
     // Now make the assignment.
     if (typeof expr !== 'number') expr = this.resolve(expr);
     this.assignSymbol(ident, false, expr);
+    // TODO - no longer needed?
+    if (this.opts.refExtractor?.assign && typeof expr === 'number') {
+      this.opts.refExtractor.assign(ident, expr);
+    }
   }
 
   set(ident: string, expr: Expr|number) {
@@ -574,7 +632,7 @@ export class Assembler {
       // handle the line...
       const tokens = args[0];
       mnemonic = Token.expectIdentifier(tokens[0]).toLowerCase();
-      arg = this.parseArg(tokens);
+      arg = this.parseArg(tokens, 1);
     } else if (typeof args[1] === 'string') {
       // parse the tokens first
       mnemonic = args[0] as string;
@@ -627,7 +685,7 @@ export class Assembler {
     this.fail(`Bad address mode ${m} for ${mnemonic}`);
   }
 
-  parseArg(tokens: Token[], start = 1): Arg {
+  parseArg(tokens: Token[], start: number): Arg {
     // Look for parens/brackets and/or a comma
     if (tokens.length === start) return ['imp'];
     const front = tokens[start];
@@ -635,7 +693,7 @@ export class Assembler {
     if (tokens.length === start + 1) {
       if (Token.isRegister(front, 'a')) return ['acc'];
     } else if (Token.eq(front, Token.IMMEDIATE)) {
-      return ['imm', Expr.parseOnly(tokens, start + 1)];
+      return ['imm', this.parseExpr(tokens, start + 1)];
     }
     // Look for relative or anonymous labels, which are not valid on their own
     if (Token.eq(front, Token.COLON) && tokens.length === start + 2 &&
@@ -654,7 +712,7 @@ export class Assembler {
       if (close < 0) this.fail(`Unbalanced ${Token.name(front)}`, front);
       const args = Token.parseArgList(tokens, start + 1, close);
       if (!args.length) this.fail(`Bad argument`, front);
-      const expr = Expr.parseOnly(args[0]);
+      const expr = this.parseExpr(args[0], 0);
       if (args.length === 1) {
         // either IND or INY
         if (Token.eq(tokens[close + 1], Token.COMMA) &&
@@ -672,7 +730,7 @@ export class Assembler {
     }
     const args = Token.parseArgList(tokens, start);
     if (!args.length) this.fail(`Bad arg`, front);
-    const expr = Expr.parseOnly(args[0]);
+    const expr = this.parseExpr(args[0], 0);
     if (args.length === 1) return ['add', expr];
     if (args.length === 2 && args[1].length === 1) {
       if (Token.isRegister(args[1][0], 'x')) return ['a,x', expr];
@@ -700,18 +758,46 @@ export class Assembler {
     // Emit some bytes.
     if (arglen) expr = this.resolve(expr); // BEFORE opcode (in case of *)
     const {chunk} = this;
+    this.markWritten(1 + arglen);
     chunk.data.push(op);
-    if (arglen) this.append(expr, arglen);
+    if (arglen) {
+      this.append(expr, arglen);
+    }
     if (!chunk.name) chunk.name = `Code`;
     // TODO - for relative, if we're in the same chunk, just compare
     // the offset...
   }
 
+  private markWritten(size: number) {
+    if (this._chunk?.org == null) return;
+    // NOTE: it's possible the chunk has spilled over into the next segment.
+    // We just ignore this by asking for the offset of the _start_ of the
+    // chunk, rather than the current position.  This is consistent with how
+    // the linker works, but can lead to issues with free'd parts, etc.
+    // Fortunately, the risk is relatively small because it's only relevant
+    // for statically-placed chunks, and (one would hope) we know what we're
+    // doing there.
+    const offset = this.orgToOffset(this._chunk.org);
+    if (offset != null) {
+      this.written.add(offset + this._chunk.data.length,
+                       offset + this._chunk.data.length + size);
+    }
+  }
+
   append(expr: Expr, size: number) {
     const {chunk} = this;
+    // Save the ref, as long as it's actually interesting.
+    if (this.opts.refExtractor?.ref && chunk.org != null) {
+      const orig = this._exprMap?.get(expr) || expr;
+      if (Expr.symbols(orig).length > 0) {
+        this.opts.refExtractor.ref(orig, size,
+                                      chunk.org + chunk.data.length,
+                                      chunk.segments);
+      }
+    }
+    // Append the number or placeholder
     expr = this.resolve(expr);
     let val = expr.num!;
-//console.log('expr:', expr, 'val:', val);
     if (expr.op !== 'num' || expr.meta?.rel) {
       // use a placeholder and add a substitution
       const offset = chunk.data.length;
@@ -774,7 +860,12 @@ export class Assembler {
 
   byte(...args: Array<Expr|string|number>) {
     const {chunk} = this;
+    this.markWritten(args.length);
     for (const arg of args) {
+      // TODO - if we ran off the end of the segment, make a new chunk???
+      // For now, we're avoiding needing to worry about it because orgToOffset
+      // and markWritten are based on the start of the chunk, rather than where
+      // it ends; but this is still a potential source of bugs!
       if (typeof arg === 'number') {
         this.writeNumber(chunk.data, 1, arg);
       } else if (typeof arg === 'string') {
@@ -792,6 +883,7 @@ export class Assembler {
 
   word(...args: Array<Expr|number>) {
     const {chunk} = this;
+    this.markWritten(2 * args.length);
     for (const arg of args) {
       if (typeof arg === 'number') {
         this.writeNumber(chunk.data, 2, arg);
@@ -801,9 +893,10 @@ export class Assembler {
     }
   }
 
-  free(size: number, token?: Token) {
+  free(size: number) {
     // Must be in .org for a single segment.
-    if (this._org == null) this.fail(`.free in .reloc mode`, token);
+    if (this._org == null) this.fail(`.free in .reloc mode`);
+    this.markWritten(size);
     const segments = this.segments.length > 1 ? this.segments.filter(s => {
       const data = this.segmentData.get(s);
       if (!data || data.memory == null || data.size == null) return false;
@@ -812,9 +905,9 @@ export class Assembler {
       return true;
     }) : this.segments;
     if (segments.length !== 1) {
-      this.fail(`.free with non-unique segment: ${this.segments}`, token);
+      this.fail(`.free with non-unique segment: ${this.segments}`);
     } else if (size < 0) {
-      this.fail(`.free with negative size: ${size}`, token);
+      this.fail(`.free with negative size: ${size}`);
     }
     // If we've got an open chunk, end it.
     if (this._chunk) {
@@ -892,6 +985,7 @@ export class Assembler {
   popSeg() {
     if (!this.segmentStack.length) this.fail(`.popseg without .pushseg`);
     [this.segments, this._chunk] = this.segmentStack.pop()!;
+    this._org = this._chunk?.org;
   }
 
   move(size: number, source: Expr) {
@@ -900,15 +994,15 @@ export class Assembler {
 
   // Utility methods for processing arguments
 
-  parseConst(tokens: Token[], start = 1): number {
-    const val = this.evaluate(Expr.parseOnly(tokens, start));
+  parseConst(tokens: Token[], start: number): number {
+    const val = this.evaluate(this.parseExpr(tokens, start));
     if (val != null) return val;
     this.fail(`Expression is not constant`, tokens[1]);
   }
-  parseNoArgs(tokens: Token[], start = 1) {
+  parseNoArgs(tokens: Token[], start: number) {
     Token.expectEol(tokens[1]);
   }
-  parseExpr(tokens: Token[], start = 1): Expr {
+  parseExpr(tokens: Token[], start: number): Expr {
     return Expr.parseOnly(tokens, start);
   }
   // parseStringList(tokens: Token[], start = 1): string[] {
@@ -918,13 +1012,13 @@ export class Assembler {
   //     return str;
   //   });
   // }
-  parseStr(tokens: Token[], start = 1): string {
+  parseStr(tokens: Token[], start: number): string {
     const str = Token.expectString(tokens[start]);
     Token.expectEol(tokens[start + 1], "a single string");
     return str;
   }
 
-  parseSegmentList(tokens: Token[], start = 1): Array<string|mod.Segment> {
+  parseSegmentList(tokens: Token[], start: number): Array<string|mod.Segment> {
     if (tokens.length < start + 1) {
       this.fail(`Expected a segment list`, tokens[start - 1]);
     }
@@ -976,7 +1070,7 @@ export class Assembler {
       } else if (term.length < 1) {
         this.fail(`Missing term`);
       } else {
-        out.push(this.resolve(Expr.parseOnly(term)));
+        out.push(this.resolve(this.parseExpr(term, 0)));
       }
     }
     return out;
@@ -1017,7 +1111,7 @@ export class Assembler {
     if (args.length !== 2 /* && args.length !== 3 */) {
       this.fail(`Expected constant number, then identifier`);
     }
-    const num = this.evaluate(Expr.parseOnly(args[0]));
+    const num = this.evaluate(this.parseExpr(args[0], 0));
     if (num == null) this.fail(`Expected a constant number`);
 
     // let segName = this.segments.length === 1 ? this.segments[0] : undefined;
@@ -1029,7 +1123,7 @@ export class Assembler {
     // }
     // const seg = segName ? this.segmentData.get(segName) : undefined;
 
-    const offset = this.resolve(Expr.parseOnly(args[1]));
+    const offset = this.resolve(this.parseExpr(args[1], 0));
     if (offset.op === 'num' && offset.meta?.chunk != null) {
       return [num, offset];
     } else {
@@ -1040,6 +1134,7 @@ export class Assembler {
   // Diagnostics
 
   fail(msg: string, at?: {source?: SourceInfo}): never {
+    if (!at && this.errorToken) at = this.errorToken;
     if (at?.source) throw new Error(msg + Token.at(at));
     if (!this._source && this._chunk?.name) {
       throw new Error(msg + `\n  in ${this._chunk.name}`);
@@ -1060,6 +1155,20 @@ export class Assembler {
       data.push(val != null ? val & 0xff : 0xff);
       if (val != null) val >>= 8;
     }
+  }
+
+  orgToOffset(org: number): number|undefined {
+    const segment = this.segmentData.get(
+        this.segments.find(s => {
+          const data = this.segmentData.get(s);
+          return data && mod.Segment.includesOrg(data, org);
+        })!);
+    return segment?.offset != null ?
+        segment.offset + (org - segment.memory!) : undefined;
+  }
+
+  isWritten(offset: number): boolean {
+    return this.written.has(offset);
   }
 }
 
@@ -1082,6 +1191,8 @@ export namespace Assembler {
   export interface Options {
     allowBrackets?: boolean;
     reentrantScopes?: boolean;
+    overwriteMode?: mod.OverwriteMode;
+    refExtractor?: RefExtractor;
   }
 }
 

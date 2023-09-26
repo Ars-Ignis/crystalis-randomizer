@@ -225,6 +225,28 @@ class Presets {
         World.UnidentifiedKeyItems,
       ]);
 
+  readonly Tournament2023 = new Preset(this, 'Tournament 2023', `
+      This year's tournament flags debuts some interesting new flags for a
+      unique challenge.`, [
+        World.RandomizeTrades,
+        World.UnidentifiedKeyItems,
+        World.RandomizeWallElements,
+        World.ShuffleGoaFloors,
+        [Routing.StoryMode, '?'],
+        Routing.OrbsNotRequired,
+        Routing.NoThunderSwordWarp,
+        Glitches.GhettoFlight,
+        Glitches.StatueGlitch,
+        Glitches.MtSabreRequirementSkip,
+        Monsters.RandomizeWeaknesses,
+        [Monsters.OopsAllMimics, '?'],
+        Monsters.TowerRobots,
+        NoGuarantees.BattleMagic,
+        NoGuarantees.Barrier,
+        HardMode.MaxScalingInTower,
+        [HardMode.ChargeShotsOnly, '?'],
+      ]);
+
   readonly Tournament2022Early = new Preset(this, 'Tournament 2022 Early Rounds', `
       Lots of potential complexity, but within reason.  Requires all swords and
       bosses, as well as a few glitches, but guarantees a starting sword.`, [ 
@@ -348,9 +370,9 @@ class World extends FlagSection {
   static readonly RandomizeTrades = World.flag('Wt', {
     name: 'Randomize trade-in items',
     text: `Items expected by various NPCs will be shuffled: specifically,
-           Statue of Onyx, Kirisa Plant, Love Pendant, Ivory Statue, Fog
-           Lamp, and Flute of Lime (for Akahana).  Rage will expect a
-           random sword, and Tornel will expect a random bracelet.`,
+           Statue of Onyx, Kirisa Plant, Love Pendant, Ivory Statue, and Fog
+           Lamp.  Rage will expect a random sword, and Tornel will expect a
+           random bracelet.`,
     hard: true,
   });
 
@@ -552,6 +574,14 @@ class Monsters extends FlagSection {
   static readonly RandomizeWeaknesses = Monsters.flag('Me', {
     name: 'Randomize monster weaknesses',
     text: `Monster and boss elemental weaknesses are shuffled.`,
+  });
+
+  static readonly OopsAllMimics = Monsters.flag('Mg', {
+    name: 'Replace all chests with mimics',
+    text: `Every chest is now a mimic, and killing the mimic will drop
+           the real item chest. Careful when killing the mimic, if it
+           drops the chest out of reach you'll need to reset the room!`,
+    hard: true,
   });
 
   static readonly TowerRobots = Monsters.flag('Mt', {
@@ -978,6 +1008,10 @@ export class FlagSet {
     return flag && this.flags.get(flag) || false;
   }
 
+  alwaysMimics(): boolean {
+    return this.check(Monsters.OopsAllMimics);
+  }
+
   preserveUniqueChecks(): boolean {
     return this.check(EasyMode.PreserveUniqueChecks);
   }
@@ -998,7 +1032,7 @@ export class FlagSet {
     return this.check(Vanilla.BonusItems, false);
   }
   rabbitBootsChargeWhileWalking(): boolean {
-    return this.check(Vanilla.BonusItems, false);
+    return this.check(Vanilla.BonusItems, false) || this.check(HardMode.ChargeShotsOnly);
   }
 
   shuffleSpritePalettes(): boolean {
@@ -1103,6 +1137,10 @@ export class FlagSet {
   shuffleAreas() {
     // TODO: consider multiple levels of shuffle?
     return this.check(World.ShuffleAreas);
+  }
+  mayShuffleAreas() {
+    // includes '?'
+    return !this.check(World.ShuffleAreas, false);
   }
   randomizeMaps() {
     return this.check(World.RandomizeMaps);
@@ -1253,5 +1291,15 @@ export class FlagSet {
 
   hasStatTracking(): boolean {
     return true;
+  }
+
+  buryFlightStartSphere(): number {
+    return 7; // we tested at 10 and it's pretty effective; use 7 for now tho.
+  }
+
+  validate(): void {
+    if (this.shuffleAreas() && this.preserveUniqueChecks()) {
+      throw new UsageError('Wa and Eu are incompatible');
+    }
   }
 }

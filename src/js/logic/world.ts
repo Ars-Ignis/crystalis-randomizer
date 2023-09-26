@@ -108,8 +108,16 @@ export class World {
   /** Location with a north exit to Lime Tree Lake (i.e. Rage). */
   private limeTreeEntranceLocation = -1;
 
+  private chestRequirement: Requirement = Requirement.OPEN;
+
   constructor(readonly rom: Rom, readonly flagset: FlagSet,
               readonly tracker = false) {
+    // Set up some initial state
+    if (flagset.alwaysMimics()) {
+      const swords = [rom.flags.SwordOfWind, rom.flags.SwordOfFire, rom.flags.SwordOfWater, rom.flags.SwordOfThunder];
+      const mimicSwords = swords.filter((_, i) => rom.objects.mimic.elements & (1 << i));
+      this.chestRequirement = or(...mimicSwords)
+    }
     // Build itemUses (e.g. windmill key inside windmill, bow of sun/moon?)
     for (const item of rom.items) {
       for (const use of item.itemUseData) {
@@ -181,7 +189,7 @@ export class World {
         OpenedCrypt,
         RabbitBoots, Refresh, RepairedStatue, RescuedChild,
         ShellFlute, ShieldRing,
-        ShootingStatue, ShootingStatueSouth, StormBracelet,
+        ShootingStatue, ShootingStatueSouth, StomSkip, StormBracelet,
         Sword, SwordOfFire, SwordOfThunder, SwordOfWater, SwordOfWind,
         TornadoBracelet, TravelSwamp, TriggerSkip,
         UsedBowOfMoon, UsedBowOfSun,
@@ -302,6 +310,18 @@ export class World {
       this.addCheck([start], TriggerSkip.r,
                     [CrossPain.id, ClimbSlope8.id,
                      ClimbSlope9.id /*, ClimbSlope10.id */]);
+    }
+    // Stom skip (only required for charge-shots only)
+    if (this.flagset.chargeShotsOnly()) {
+      for (const location of this.rom.townWarp.locations) {
+        const loc = this.rom.locations[location];
+        const entrance = loc.entrances[0];
+        // Check if the entrance is above y<$58, which is the requirement
+        // for skipping the fight (see check in $362b4).
+        if ((entrance.y & 0xff) < 0x58) {
+          this.addCheck([this.entrance(location)], BuyWarp.r, [StomSkip.id]);
+        }
+      }
     }
   }
 
@@ -863,7 +883,7 @@ export class World {
         // Special case: warp boots glitch required if charge shots only.
         const req =
           this.flagset.chargeShotsOnly() ?
-          Requirement.meet(requirements, and(this.rom.flags.WarpBoots)) :
+          Requirement.meet(requirements, this.rom.flags.StomSkip.r) :
           requirements;
         this.addItemCheck(hitbox, req, this.rom.flags.StomFightReward.id,
                           {lossy: true, unique: true});
@@ -1021,13 +1041,18 @@ export class World {
             hitbox, [req], this.rom.flags.AsinaInBackRoom.id, info);
         break;
 
-      case 0x11:
+      case 0x11: // give item through trigger (loading from $6a0)
         this.addItemCheck(hitbox, [req], 0x100 | npc.data[1], info);
         break;
 
-      case 0x03:
-      case 0x0a: // normally this hard-codes glowing lamp, but we extended it
+      case 0x03: // give item through trigger (loading from $680)
         this.addItemCheck(hitbox, [req], 0x100 | npc.data[0], info);
+        break;
+
+      case 0x0a: // normally this hard-codes glowing lamp, but we extended it to drop any chest
+        // since we drop a chest, we want to add a sword requirement if it turns into a mimic
+        const swordReq = this.flagset.alwaysMimics() ? [[...req, this.rom.flags.Sword.c]] : [req];
+        this.addItemCheck(hitbox, swordReq, 0x100 | npc.data[0], info);
         break;
 
       case 0x09:
@@ -1085,7 +1110,6 @@ export class World {
     }
     this.addTerrain(hitbox,
                     this.terrainFactory.statue([...req, ...extra].map(spread)));
-
 
     // TODO - Portoa guards are broken :-(
     // The back guard needs to block on the front guard's conditions,
@@ -1173,13 +1197,13 @@ export class World {
     const losable = itemget.isLosable();
     // TODO - refactor to just "can't be bought"?
     const preventLoss = unique || item === this.rom.items.OpelStatue;
-    let weight = 1;
-    if (item === this.rom.items.SwordOfWind) weight = 5;
-    if (item === this.rom.items.SwordOfFire) weight = 5;
-    if (item === this.rom.items.SwordOfWater) weight = 10;
-    if (item === this.rom.items.SwordOfThunder) weight = 15;
-    if (item === this.rom.items.Flight) weight = 15;
-    this.items.set(0x200 | itemget.id, {unique, losable, preventLoss, weight});
+    // let weight = 1;
+    // if (item === this.rom.items.SwordOfWind) weight = 5;
+    // if (item === this.rom.items.SwordOfFire) weight = 5;
+    // if (item === this.rom.items.SwordOfWater) weight = 10;
+    // if (item === this.rom.items.SwordOfThunder) weight = 15;
+    // if (item === this.rom.items.Flight) weight = 15;
+    this.items.set(0x200 | itemget.id, {unique, losable, preventLoss});
   }
 
   addCheckFromFlags(hitbox: Hitbox, requirement: Requirement, flags: number[]) {
@@ -1264,7 +1288,7 @@ export class World {
     if (mapped >= 0x70) return; // TODO - mimic% may care
     const item = this.rom.items[mapped];
     const unique = this.flagset.preserveUniqueChecks() ? !!item?.unique : true;
-    this.addItemCheck([TileId.from(location, spawn)], Requirement.OPEN,
+    this.addItemCheck([TileId.from(location, spawn)], this.chestRequirement,
                       slot, {lossy: false, unique});
   }
 

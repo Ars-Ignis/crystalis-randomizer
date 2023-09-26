@@ -26,3 +26,4 @@
     .move 10, ContinuousMagicTable_Orig
     ;.byte $08,$00,$08,$08,$08,$08,$00,$08,$00,$08
 .endscope
+

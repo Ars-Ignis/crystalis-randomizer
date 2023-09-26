@@ -55,6 +55,10 @@ export class Flag {
     this.logic = data.logic ?? TRACK;
   }
 
+  unsafeRename(newName: string) {
+    (this as {name: string}).name = newName;
+  }
+
   get c(): Condition {
     return this.id as Condition;
   }
@@ -518,7 +522,7 @@ export class Flags {
   FortressSaberaSoutheastChest = tracked(0x166); // fruit of repun
   KensuInCabin = tracked(0x167); // added by randomizer if fog lamp not needed
   // unused 168 magic ring chest
-  MtSabreWestNearKensuChest = tracked(0x169); // magic ring
+  MtSabreWestNearTornelChest = tracked(0x169); // magic ring
   MtSabreWestLeftChest = tracked(0x16a); // warp boots
   FortressMadoUpperBehindWallChest = tracked(0x16b); // magic ring
   PyramidChest = tracked(0x16c); // magic ring
@@ -666,6 +670,7 @@ export class Flags {
   TriggerSkip = pseudo(this);
   RageSkip = pseudo(this);
   ShootingStatueSouth = pseudo(this); // pass south through statues
+  StomSkip = pseudo(this); // town warp that will satisfy yt<=4
 
   // Map of flags that are "waiting" for a previously-used ID.
   // Signified with a negative (one's complement) ID in the Flag object.

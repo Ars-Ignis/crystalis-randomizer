@@ -12,11 +12,13 @@ export function shuffleMonsters(rom: Rom, flags: FlagSet, random: Random) {
   const graphics = new Graphics(rom);
   // (window as any).graphics = graphics;
   if (flags.shuffleSpritePalettes()) graphics.shufflePalettes(random);
-  const pool = new MonsterPool(flags, {});
+  const report = {};
+  const pool = new MonsterPool(flags, report);
   for (const loc of rom.locations) {
     if (loc.used) pool.populate(loc);
   }
   pool.shuffle(random, graphics);
+  // console.log(`report: ${JSON.stringify(report, null, 2)}`);
 }
 
 interface MonsterConstraint {
@@ -118,11 +120,11 @@ class MonsterPool {
       }
       for (const spawn of location.spawns) {
         if (spawn.isChest() && !spawn.isInvisible()) {
-          if (rom.slots[spawn.id] < 0x70) {
-            constraint = constraint.meet(Constraint.TREASURE_CHEST, true);
-          } else {
-            constraint = constraint.meet(Constraint.MIMIC, true);
-          }
+          // if (rom.slots[spawn.id] < 0x70) {
+          //   constraint = constraint.meet(Constraint.TREASURE_CHEST, true);
+          // } else {
+          //   constraint = constraint.meet(Constraint.MIMIC, true);
+          // }
         } else if (spawn.isNpc() || spawn.isBoss()) {
           const c = graphics.getNpcConstraint(location.id, spawn.id);
           constraint = constraint.meet(c, true);
@@ -176,7 +178,7 @@ class MonsterPool {
           if (pos == null) return false;
         }
 
-        report.push(`  Adding ${m.id.toString(16)}: ${meet}`);
+        report.push(`  Adding ${m.id.toString(16)}: ${JSON.stringify(meet)}`);
         constraint = meet;
 
         // Pick the slot only after we know for sure that it will fit.

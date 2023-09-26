@@ -1,3 +1,15 @@
+Cleanups after merging v2.0.0
+ - @PatchResistance in oops-all-mimics code - just patch it in TS?
+ - look for asm patches to `.org $....` - see about swapping in variable reads
+   or rewriting entire functions
+ - split out the charge-shot-only behaviors into separate flags
+ - move wraith shadows out of deterministicPreParse
+ - fix swapMimicAndRecoverGraphics (deterministic.ts) to not poke the PRG directly
+ - bosskill -> could consolidate some of the data table entries?
+
+===
+
+
 https://crystalisrandomizer.com/sha/5cfbd80/#flags=HhtxzMetNbwRosWaeghmtu&seed=29215157
  - b4 upstair in wrong spot???
 

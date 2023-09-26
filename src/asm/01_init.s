@@ -1,6 +1,12 @@
 ;;; smudge sha1 fd0dcde4f1708b30d5c3de1e463f1dde89c5cb64
 ;;; smudge off
 
+;;; Initialization. This must come before all other modules.
+
+;;; Tag for labels that we expect to override vanilla
+.define OVERRIDE
+
+;;; Nicer syntax for declaring free sections
 .define FREE {seg [start, end)} \
     .pushseg seg .eol \
     .org start .eol \
@@ -29,7 +35,6 @@
 .popseg .eol \
 .endif .eol \
 UPDATE_REFS :- @ refs
-
 
 ;;; Update a handful of refs to point to the given address.
 ;;; Usage:
@@ -80,6 +85,7 @@ UPDATE_REFS target @ refs
 .segment "12"   :bank $12 :size $2000 :off $24000 :mem $8000
 .segment "13"   :bank $13 :size $2000 :off $26000 :mem $a000
 .segment "14"   :bank $14 :size $2000 :off $28000 :mem $8000
+.segment "14:a" :bank $14 :size $2000 :off $28000 :mem $a000
 .segment "15"   :bank $15 :size $2000 :off $2a000 :mem $a000
 .segment "16"   :bank $16 :size $2000 :off $2c000 :mem $8000
 ;;; 15..17 store messages, all accessed via the a000 slot
@@ -123,6 +129,7 @@ UPDATE_REFS target @ refs
 .segment "36"   :bank $36 :size $2000 :off $6c000 :mem $8000
 .segment "37"   :bank $37 :size $2000 :off $6e000 :mem $a000
 ;;; Plane 7 - available for code/data
+;;;  - we move parts out of higher-value pages into here.
 .segment "38"   :bank $38 :size $2000 :off $70000 :mem $8000
 .segment "39"   :bank $39 :size $2000 :off $72000 :mem $a000
 .segment "3a"   :bank $3a :size $2000 :off $74000 :mem $8000
@@ -163,6 +170,7 @@ FREE "3d" [$a000, $c000)
 .define GameMode   $41
 .define BankSelectShadow $50
 .define ScreenMode $51
+
 ObjectRecoil = $340
 ObjectHP = $3c0
 PlayerHP = $3c1
@@ -197,6 +205,8 @@ ScrollXHi = $07d9
 ScrollYLo = $07da
 ScrollYHi = $07db
 
+WarriorRingStabCounter = $61fb  ; added in rando
+PlayerStandingTimer = $61fc     ; added in rando
 InvSwords = $6430
 InvConsumables = $6440
 InvPassive = $6448
@@ -379,60 +389,17 @@ IRQENABLE  = $e001
 ;;; note: this is dangerous if it would result in a register read
 .define SKIP_TWO_BYTES .byte $2c
 
-;;; Labels (TODO - consider keeping track of bank?)
-.segment "0e"                   ; 1c000
-SetOrClearFlagsFromBytePair_24y = $8112
-ReadFlagFromBytePair_24y        = $8135
-ItemGet                         = $826f
-ItemGet_Bracelet                = $82f4
-ItemGet_FindOpenSlot            = $8308
-ItemUse_TradeIn                 = $8354
-
 .segment "10"       ; 20000
-Shop_NothingPressed = $97cd
 AfterLoadGame       = $9c7a
 
-.segment "13"      ; 26000
-PlayerDeath        = $b91c
-ActivateOpelStatue = $b9b0
-
-
-.segment "1a"         ; 34000
-
-ArmorDefense          = $8bc0
-ShieldDefense         = $8bc9
-DisplayNumberInternal = $8e46
-KillObject            = $9152
-KnockbackObject       = $95c0
-NextLevelExpByLevel   = $8b9e
-
 .segment "fe"              ; 3c000
-PowersOfTwo                = $c000
-UpdateEquipmentAndStatus   = $c008
-StartAudioTrack            = $c125
-LoadOneObjectDataInternal  = $c25d
-BankSwitch16k              = $c40e
-BankSwitch8k_8000          = $c418
-BankSwitch8k_a000          = $c427
-EnableNMI                  = $c436
-DisableNMI                 = $c43e
-StageNametableWriteFromTable    = $c482
 FlushNametableDataWrite         = $c676
-WaitForNametableBufferAvailable = $c72b
-RequestAttributeTable0Write     = $c739
 MainLoop_01_Game           = $cab6
-CheckForPlayerDeath        = $cb84
 DialogAction_11            = $d21d
-LoadAndShowDialog          = $d347
-WaitForDialogToBeDismissed = $d354
-SpawnMimic                 = $d3da
 MainLoopItemGet            = $d3ff
 
 .segment "ff"                 ; 3e000
 RestoreBanksAndReturn         = $e756
-UpdatePpuScroll               = $eb6d
-ReadControllersWithDirections = $fe80
-DisplayNumber                 = $ffa9
 
 ;;; Various free sections
 
@@ -502,11 +469,6 @@ FREE "14" [$8520, $8528)
 
 ;;; DMC changes, remove unused DMC configurations.
 FREE "18" [$8be0, $8c0c)
-;;; Patch the DMC Sample to start with FF to eliminate the buzz
-.pushseg "ff"
-.org $fa00
-  .byte $ff
-.popseg
 
 FREE "1b" [$a086, $a0a3)
 
@@ -531,10 +493,221 @@ FREE "ff" [$ffe3, $fffa)
 .org $fa00
   .byte $ff
 
-;;; Patch the end of ItemUse to check for a few more items.
-.segment "0e"
-.org $834d
-  jmp PatchTradeInItem
+;;; Explicitly declare some addresses we're writing directly.
+;;; NOTE: Many of these could be made .reloc and then just export
+;;; the address?
 
-.org $8156                      ; 1c157
-  lda PowersOfTwo,x ; no need for multiple copies
+;;; Map screens
+.macro RESERVE_MAPS
+  .repeat 64, I
+  .org ($8000+(I<<8))
+    .res $f0
+  .endrep
+.endmacro
+
+.segment "00","01"
+RESERVE_MAPS
+.segment "02","03"
+RESERVE_MAPS
+.segment "04","05"
+RESERVE_MAPS
+.segment "06","07"
+RESERVE_MAPS
+.undefine RESERVE_MAPS
+
+;;; NPC data
+.segment "04","05"
+.repeat 64, I
+.org ($8000 + (I<<8) + $f0)
+  .res 16
+.endrep
+
+;;; Tileset
+.segment "08","09"
+.org $8000
+  .res $2000
+.org $a000
+  .res $2000
+
+;;; MapData index table (and shop screens)
+.segment "0a"
+.org $8000 
+  .res $300 ; Shop screens
+.org $8300
+  .res $200 ; MapData
+
+;;; Spawn tables
+.segment "0c"
+.org $9201
+  .res $200
+
+;;; Object data table index
+.segment "0d"
+.org $ac00
+  .res $200
+
+.segment "0e"
+
+;;; ItemUseJump (this is a mess because we free chunks of it)
+.org $83d3
+  .res ($83eb - *)
+.org $83fb
+  .res ($841b - *)
+
+;;; NPC spawn conditions
+.org $85e0
+  .res $112 ; NOTE: gap between 86f2..86fc repurposed
+.org $86fc
+  .res 2    ; Mesia
+.org $8760
+  .res 26   ; Boss spawns
+.org $895d
+  .res ($8ae5 - *)  ; Dialog
+
+;;; Telepathy
+.org $8213
+  .res 7            ; Required level
+.org $822f
+  .res $40          ; Result table (i.e. the RNG)
+.org $98f4
+  .res $100         ; Location table
+  .res ($9b00 - *)  ; Main table
+
+;;; Item tables
+.org $9b00
+  .res ($9be2 - *)  ; Item Get indirection
+  .res ($9c82 - *)  ; Item Use indirection
+  ;; NOTE: [9c82 .. 9daf] is freed above (made more efficient in asm)
+.org $9daf
+  .res ($9de6 - *)  ; get-to-item table
+  ;; NOTE: [9de6 .. a106] is freed in item.ts
+
+;;; Triggers (main table)
+.segment "0f"
+.org $a17a
+  .res $100
+
+;;; Boss kills
+.segment "0f"
+.org $b7c1
+  .res 14 * 5 ; graphics restore table
+.org $b95d
+  .res 14 ; location indexes for 14 bosses
+.org $b96b
+  .res 28 ; pointers for 14 bosses (actual data is reloc)
+
+;;; Inventory item data
+.segment "10"
+.org $8ff0
+  .res $4b ; bitmap data about droppability, palette, etc
+  .res $4b ; equipped item id
+  .res $4a * 2 ; menu name addresses
+
+;;; Ad hoc spawn table
+.segment "14"
+.org $9c00
+  .res $60 * 4
+
+;;; Checkpoint locations table
+.segment "17"
+.org $bf00
+  .res $100
+
+;;; Attack/defese/misc data
+.segment "1a"
+.org $8bc0
+  .res 9 ; armor defense
+.org $8bc9
+  .res 9 ; shield defense
+.org $9691
+  .res 24 * 4 ; hitboxes
+.org $97e4
+  .res 64 ; RNG table
+
+;;; Metasprite rendering code + data
+.segment "1c","1d"
+.org $845c ; MetaspriteTable
+  .res $100
+.org $855c
+  .res $100 ; MetaspriteTablePart2
+; .org $865c
+;   .res ($a000 - *) ; All of the actual metasprite data
+; .org $a000
+;   .res $1500
+FREE_UNTIL $c000
+
+;;; New extended map screens
+.segment "20","21"
+.org $8000
+  .res $2000
+.org $a000
+  .res $2000
+.segment "22","23"
+.org $8000
+  .res $2000
+.org $a000
+  .res $2000
+.segment "24","25"
+.org $8000
+  .res $2000
+.org $a000
+  .res $2000
+.segment "26","27"
+.org $8000
+  .res $2000
+.org $a000
+  .res $2000
+.segment "28","29"
+.org $8000
+  .res $2000
+.org $a000
+  .res $2000
+.segment "2a","2b"
+.org $8000
+  .res $2000
+.org $a000
+  .res $2000
+.segment "2c","2d"
+.org $8000
+  .res $2000
+.org $a000
+  .res $2000
+.segment "2e","2f"
+.org $8000
+  .res $2000
+.org $a000
+  .res $2000
+
+;;; Enemy names index table (for HUD)
+.segment "3d"
+.org $a000
+  .res $200
+
+.segment "fe"
+;;; Wild warp table
+.org $cbec
+  .res 16
+;;; Town warp table
+.org $dc58
+  .res 12
+
+
+;;; Rewrite the page boundary to avoid code crossing it.
+;;; This is equivalent to the original, but 6 bytes shorter
+;;; and doesn't cross the boundary (TODO - why did we care
+;;; about that??? maybe it was something about a limitation
+;;; in how the assembler handles cross-segment chunks?)
+.segment "12", "13"
+.org $9fef
+  ;; Need to fit this in 17 bytes
+  sta $09     ; 85 09
+  ldy #$03    ; a0 04
+- sta $06f0,y ; 99 f0 06
+  sta $0002,y ; 99 02 00
+  dey         ; 88
+  bpl -       ; 10 f7
+  jmp $a005   ; 4c 05 a0
+FREE_UNTIL $a000
+.org $a000
+FREE_UNTIL $a005
+

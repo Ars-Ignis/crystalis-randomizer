@@ -26,7 +26,12 @@ export interface Chunk<T extends number[]|Uint8Array|string> {
   subs?: Substitution[];
   /** Assertions within this chunk. Each expression must be nonzero. */
   asserts?: Expr[];
+  /** How overwriting previously-written fixed-position data is handled. */
+  overwrite?: OverwriteMode; // NOTE: only set programmatically?
 }
+
+// Default is "allow"
+export type OverwriteMode = 'forbid'|'allow'|'require';
 
 export interface Symbol {
   /** Name to export this symbol as, for importing into other objects. */
@@ -62,6 +67,10 @@ export namespace Segment {
     const free = [...(a.free || []), ...(b.free || [])];
     if (free.length) seg.free = free;
     return seg;
+  }
+  export function includesOrg(s: Segment, addr: number): boolean {
+    if (s.memory == null || s.size == null) return false;
+    return addr >= s.memory && addr < (s.memory + s.size);
   }
 }
 

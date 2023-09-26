@@ -39,7 +39,7 @@ import { fixTilesets } from './rom/screenfix';
 import { Shop, ShopType } from './rom/shop';
 import { Spoiler } from './rom/spoiler';
 import { hex, seq, watchArray } from './rom/util';
-import { sources } from './data';
+import { sources, refs } from './data';
 import { DefaultMap } from './util';
 import * as version from './version';
 import { shuffleAreas } from './pass/shuffleareas';
@@ -54,6 +54,33 @@ export interface ProgressTracker {
   addTasks(tasks: number): void;
   addCompleted(tasks: number): void;
 }
+
+// Pull in all the patches we want to apply automatically.
+// NOTE: This is only used by jsnesx's ?patch= parameter.
+// TODO - make a debugger window for patches.
+// TODO - this needs to be a separate non-compiled file.
+export default ({
+  async apply(rom: Uint8Array, hash: {[key: string]: unknown}, path: string): Promise<Uint8Array> {
+    // Look for flag string and hash
+    let flags;
+    if (!hash.seed) {
+      // TODO - send in a hash object with get/set methods
+      hash.seed = parseSeed('').toString(16);
+      window.location.hash += '&seed=' + hash.seed;
+    }
+    if (hash.flags) {
+      flags = new FlagSet(String(hash.flags));
+    } else {
+      flags = new FlagSet('@FullShuffle');
+    }
+    for (const key in hash) {
+      if (hash[key] === 'false') hash[key] = false;
+    }
+    const [result,] =
+        await shuffle(rom, parseSeed(String(hash.seed)), flags);
+    return result;
+  },
+});
 
 export function parseSeed(seed: string): number {
   if (!seed) return Random.newSeed();
@@ -75,6 +102,7 @@ function defines(flags: FlagSet,
     _BARRIER_REQUIRES_CALM_SEA: true, // flags.barrierRequiresCalmSea(),
     _BUFF_DEOS_PENDANT: flags.buffDeosPendant(),
     _BUFF_DYNA: flags.buffDyna(), // true,
+    _CHARGE_SHOT_ONLY: flags.chargeShotsOnly(),
     _CHECK_FLAG0: true,
     _CTRL1_SHORTCUTS: flags.controllerShortcuts(pass),
     _CUSTOM_SHOOTING_WALLS: true,
@@ -101,6 +129,7 @@ function defines(flags: FlagSet,
     _NERF_MADO: true,
     _NEVER_DIE: flags.neverDie(),
     _NORMALIZE_SHOP_PRICES: flags.shuffleShops(),
+    _OOPS_ALL_MIMICS: flags.alwaysMimics(),
     _PITY_HP_AND_MP: true,
     _PROGRESSIVE_BRACELET: true,
     _RABBIT_BOOTS_CHARGE_WHILE_WALKING: flags.rabbitBootsChargeWhileWalking(),
@@ -129,7 +158,7 @@ function defines(flags: FlagSet,
 
 function patchGraphics(rom: Uint8Array, sprites: Sprite[]) {
   for (let sprite of sprites) {
-    Sprite.applyPatch(sprite, rom, EXPAND_PRG);
+    Sprite.applyPatch(sprite, rom, true);
   }
 }
 
@@ -170,12 +199,14 @@ export async function shuffle(rom: Uint8Array,
   const newSeed = crc32(seed.toString(16).padStart(8, '0') + String(originalFlags.filterOptional())) >>> 0;
   const random = new Random(newSeed);
 
-  const sprites = spriteReplacements ? spriteReplacements : [];
   const attemptErrors = [];
-  for (let i = 0; i < 5; i++) { // for now, we'll try 5 attempts
+  const maxAttempts = originalFlags.mayShuffleAreas() ? 12 : 5;
+  // const maxAttempts = 1;
+  for (let i = 0; i < maxAttempts; i++) { // for now, we'll try 5 attempts, or 12 if area shuffle could be on
     try {
-      return await shuffleInternal(rom, originalFlags, seed, random, log, progress, sprites, origPrg);
+      return await shuffleInternal(rom, originalFlags, seed, random, log, progress, spriteReplacements, origPrg);
     } catch (error) {
+      if (error.name === 'UsageError') throw error;
       attemptErrors.push(error);
       console.error(`Attempt ${i + 1} failed: ${error.stack}`);
     }
@@ -183,17 +214,14 @@ export async function shuffle(rom: Uint8Array,
   throw new Error(`Shuffle failed: ${attemptErrors.map(e => e.stack).join('\n\n')}`);
 }
 
-async function shuffleInternal(rom: Uint8Array,
-                               originalFlags: FlagSet,
-                               originalSeed: number,
-                               random: Random,
-                               log: {spoiler?: Spoiler}|undefined,
-                               progress: ProgressTracker|undefined,
-                               spriteReplacements: Sprite[],
-                               origPrg: Uint8Array,
-                              ): Promise<readonly [Uint8Array, number]>  {
+export function preItemShuffle(rom: Uint8Array,
+                                     originalFlags: FlagSet,
+                                     random: Random,
+                                     log: {spoiler?: Spoiler}|undefined,
+                                    ): [Rom, FlagSet]{
   const originalFlagString = String(originalFlags);
   const flags = originalFlags.filterRandom(random);
+  flags.validate();
   const parsed = new Rom(rom);
   const actualFlagString = String(flags);
 // (window as any).cave = shuffleCave;
@@ -209,7 +237,7 @@ async function shuffleInternal(rom: Uint8Array,
   // parsed.moveScreens(parsed.metatilesets.dolphinCave, 4);
   // parsed.moveScreens(parsed.metatilesets.lime, 4);
   // parsed.moveScreens(parsed.metatilesets.shrine, 4);
-  if (typeof window == 'object') (window as any).rom = parsed;
+  if (typeof globalThis == 'object') (globalThis as any).rom = parsed;
   parsed.spoiler = new Spoiler(parsed);
   if (log) log.spoiler = parsed.spoiler;
   if (actualFlagString !== originalFlagString) {
@@ -249,11 +277,33 @@ async function shuffleInternal(rom: Uint8Array,
   // NOTE: Shuffle mimics and monsters *after* shuffling maps, but before logic.
   if (flags.shuffleMimics()) shuffleMimics(parsed, flags, random);
   if (flags.shuffleMonsters()) shuffleMonsters(parsed, flags, random);
+  
+  return [parsed, flags];
+}
+
+export function createGraph(parsed: Rom, flags: FlagSet): Graph {
+  const world = new World(parsed, flags);
+  const graph = new Graph([world.getLocationList()]);
+  return graph;
+}
+
+async function shuffleInternal(rom: Uint8Array,
+                               originalFlags: FlagSet,
+                               originalSeed: number,
+                               random: Random,
+                               log: {spoiler?: Spoiler}|undefined,
+                               progress: ProgressTracker|undefined,
+                               spriteReplacements: Sprite[],
+                               origPrg: Uint8Array,
+                              ): Promise<readonly [Uint8Array, number]>  {
+// (window as any).cave = shuffleCave;
+  var parsed: Rom;
+  var flags: FlagSet;
+  [parsed, flags] = preItemShuffle(rom, originalFlags, random, log);  
 
   // This wants to go as late as possible since we need to pick up
   // all the normalization and other handling that happened before.
-  const world = new World(parsed, flags);
-  const graph = new Graph([world.getLocationList()]);
+  const graph = createGraph(parsed, flags);
   if (!flags.noShuffle()) {
     const fill = await graph.shuffle(flags, random, undefined, progress, parsed.spoiler);
     if (fill) {
@@ -278,7 +328,8 @@ async function shuffleInternal(rom: Uint8Array,
       }
       parsed.slots.setCheckCount(fill.size);
     } else {
-      return [rom, -1];
+      throw new Error(`Shuffle failed`);
+      //return [rom, -1];
       //console.error('COULD NOT FILL!');
     }
   }
@@ -287,6 +338,18 @@ async function shuffleInternal(rom: Uint8Array,
   // TODO - set omitItemGetDataSuffix and omitLocalDialogSuffix
   //await shuffleDepgraph(parsed, random, log, flags, progress);
 
+  var rom: Uint8Array;
+  var crc: number;
+  [rom, crc] = await postItemShuffle(parsed, flags, random, rom, originalFlags, originalSeed, spriteReplacements, origPrg);
+  return [rom, crc];
+}
+
+export async function postItemShuffle(parsed: Rom, flags: FlagSet, random: Random,
+                                rom: Uint8Array,
+                                originalFlags: FlagSet,
+                                originalSeed: number,
+                                spriteReplacements: Sprite[],
+                                origPrg: Uint8Array, ): Promise<readonly [Uint8Array, number]> {
   // TODO - rewrite rescaleShops to take a Rom instead of an array...
   if (flags.shuffleShops()) {
     // TODO - separate logic for handling shops w/o Pn specified (i.e. vanilla
@@ -358,9 +421,11 @@ async function shuffleInternal(rom: Uint8Array,
   // file that runs afterwards all on its own.
 
   async function asm(pass: 'early' | 'late') {
+    // First synthesize the flags file
     const flagFile = defines(flags, pass);
-    const asm = new Assembler(Cpu.P02);
+    const asm = new Assembler(Cpu.P02, {overwriteMode: 'forbid'});
     const toks = new TokenStream();
+    // Then read all the patch sources
     toks.enter(TokenSource.concat(
         new Tokenizer(flagFile, 'flags.s'),
         ...sources()
@@ -370,6 +435,45 @@ async function shuffleInternal(rom: Uint8Array,
                 {lineContinuations: true}))));
     const pre = new Preprocessor(toks, asm);
     asm.tokens(pre);
+    // Last apply all the fallbacks
+    const refsJson = refs();
+    let segments: readonly string[] = [];
+    for (const label of refsJson.labels) {
+      if (!asm.definedSymbol(label.name)) {
+        //console.error(`LABEL: ${label.name}`);
+        if (segments.length !== label.segments.length ||
+            segments.some((s, i) => s !== label.segments[i])) {
+          asm.segment(...(segments = label.segments));
+        }
+        asm.org(label.org);
+        asm.label(label.name);
+      }
+    }
+    for (const ref of refsJson.refs) {
+      // TODO - I might run into problems if an expression has multiple
+      // symbols and only one is redefined in the patch sources.  We may
+      // need to mark _all_ conflated symbols as also relevant, and also
+      // consider non-label assignments???  For now, don't worry about it.
+
+      // NOTE: Handle PRG expansion here.
+      const offset = ref.offset + (ref.offset >= 0x3c000 ? 0x40000 : 0);
+      if (!asm.isWritten(offset)) {
+        //console.error(`REF ${offset.toString(16)} in ${ref.segments.join(',')}`, ref.expr);
+        if (segments.length !== ref.segments.length ||
+            segments.some((s, i) => s !== ref.segments[i])) {
+          asm.segment(...(segments = ref.segments));
+        }
+        asm.org(ref.org);
+        if (ref.bytes === 1) {
+          asm.byte(ref.expr);
+        } else if (ref.bytes === 2) {
+          asm.word(ref.expr);
+        } else {
+          throw new Error(`bad bytes: ${ref.bytes}`);
+        }
+      }
+    }
+    // Done
     return asm.module();
   }
 
@@ -398,9 +502,10 @@ async function shuffleInternal(rom: Uint8Array,
   parsed.writeData(prgCopy);
   parsed.modules.set(ASM, await asm('late'));
 
+  const originalFlagString = String(originalFlags);
   const hasGraphics = spriteReplacements?.some((spr) => Sprite.isCustom(spr)) || false;
-  const crc = stampVersionSeedAndHash(rom, originalSeed, originalFlagString, prgCopy, hasGraphics);
 
+  const crc = stampVersionSeedAndHash(rom, originalSeed, originalFlagString, prgCopy, hasGraphics);
 
   // Do optional randomization now...
   if (flags.randomizeMusic('late')) {
@@ -419,8 +524,11 @@ async function shuffleInternal(rom: Uint8Array,
 
   parsed.writeData();
 
+  // Patch graphics and update any metasprites after everything is done so the hashes will match
+  const sprites = spriteReplacements ? spriteReplacements : [];
+  patchGraphics(rom.subarray(0x10), sprites);
+
   // TODO - optional flags can possibly go here, but MUST NOT use parsed.prg!
-  patchGraphics(rom, spriteReplacements);
   return [rom, crc];
 }
 
@@ -620,6 +728,9 @@ function shuffleWildWarp(rom: Rom, _flags: FlagSet, random: Random): void {
         l.id &&
         // don't warp into shops
         !l.isShop() &&
+        // don't warp into water
+        l !== rom.locations.EvilSpiritIsland1 &&
+        l !== rom.locations.UndergroundChannel &&
         // don't warp into tower
         (l.id & 0xf8) !== 0x58 &&
         // don't warp to either side of Draygon 2

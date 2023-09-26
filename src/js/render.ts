@@ -2,6 +2,9 @@
 
 import { CharacterSet, Sprite, generateThumbnailImage } from './characters';
 import {FlagSection, FlagSet, Preset} from './flagset';
+// import * as Ips from module('./tools/ips');
+const Ips:any = require('./tools/ips');
+const Main:any = require('./main');
 
 export function renderPresets(presets: HTMLElement) {
   let first = true;
@@ -67,14 +70,15 @@ export async function renderDefaultCharacters(options: HTMLElement) {
   const simeaReplacements = CharacterSet.get("simea");
   for (const sprite of simeaReplacements.values()) {
     const container = document.createElement('div');
-    renderCustomCharacter(container, await sprite);
+    renderCustomCharacter(container, "", await sprite);
     options.appendChild(container);
   }
 }
 
-export function renderCustomCharacter(container: HTMLElement, sprite: Sprite) {
+export function renderCustomCharacter(container: HTMLElement, filename: string, sprite: Sprite) {
   container.className = "flex-row";
   container.style.width = '100%';
+  
   const input = document.createElement('input');
   input.type = 'radio';
   input.name = 'simea-replacement'
@@ -88,6 +92,7 @@ export function renderCustomCharacter(container: HTMLElement, sprite: Sprite) {
   }
   container.appendChild(input);
   const label = document.createElement('label');
+  label.style.position = "relative";
   label.className = "sprite-replacement";
   label.htmlFor = `simea-replacement-${sprite.name}`;
   const img = document.createElement('img');
@@ -108,6 +113,61 @@ export function renderCustomCharacter(container: HTMLElement, sprite: Sprite) {
     desc.className = "desc";
     label.appendChild(desc);
   }
+
+  const cornerButtons = document.createElement('div');
+  cornerButtons.style.position = "absolute";
+  cornerButtons.style.top = "0";
+  cornerButtons.style.right = "0";
+  cornerButtons.style.margin = "3px";
+  if (filename != "") {
+    const xbutton = document.createElement('div');
+    xbutton.textContent = "X";
+    xbutton.className = "button";
+    xbutton.onclick = function() {
+      const selectedSimeaSprite = window['localStorage'].getItem('simea-replacement');
+      const savedSpritesStr = window['localStorage'].getItem('simea-replacement-custom') || "{}";
+      const savedSprites = JSON.parse(savedSpritesStr, Main.addMapRestorement);
+      // remove the sprite from localstorage and then reload sprites
+      delete savedSprites[filename];
+      window['localStorage'].setItem('simea-replacement-custom', JSON.stringify(savedSprites, Main.addMapReplacement));
+
+      // if we deleted the selected sprite reselect Simea
+      if (sprite.name == selectedSimeaSprite) {
+        const simeaOptions = document.getElementsByName('simea-replacement');
+        for (const radio of simeaOptions) {
+          const r = <HTMLInputElement>radio;
+          if (r.value == "Simea") {
+            r.checked = true;
+          }
+        }
+      }
+
+      reloadSpritesFromStorage();
+    }
+    cornerButtons.appendChild(xbutton);
+  }
+
+  // Also add a button for downloading the sprite as an IPS patch for vanilla
+  
+  const ipsButton = document.createElement('div');
+  ipsButton.className = "button";
+  const downloadIcon = document.getElementById('download-icon')?.cloneNode(true)! as HTMLElement;
+  downloadIcon.setAttribute("id", `download-icon-${sprite.name}`);
+  downloadIcon.style.display = "flex";
+  ipsButton.appendChild(downloadIcon);
+  ipsButton.className = "button";
+  ipsButton.onclick = function() {
+    const vanillaRom = Main.rom.slice();
+    const patchedRom = Main.rom.slice();
+    Sprite.applyPatch(sprite, patchedRom.subarray(0x10), false);
+    const vanilla = new Ips.MarcFile(vanillaRom);
+    const patched = new Ips.MarcFile(patchedRom);
+    Ips.createIPSFromFiles(vanilla, patched).export(sprite.name).save();
+  }
+  // downloadIps.appendChild(ipsButton);
+  // downloadIps.style.marginTop = "8px";
+  cornerButtons.appendChild(ipsButton);
+  label.appendChild(cornerButtons);
   container.appendChild(label);
 }
 
@@ -143,3 +203,27 @@ export function renderRaceFlags(options: HTMLElement, flagset: FlagSet) {
     }
   }
 };
+
+export const reloadSpritesFromStorage = () => {
+  const selectedSimeaSprite = window['localStorage'].getItem('simea-replacement');
+  const savedSpritesStr = window['localStorage'].getItem('simea-replacement-custom') || "{}";
+  const savedSprites = JSON.parse(savedSpritesStr, Main.addMapRestorement);
+  // load any saved sprites from storage
+  const savedSpritesDiv = document.getElementById('simea-sprite-custom')!;
+  savedSpritesDiv.innerHTML = '';
+  for (let [filename, sprite] of Object.entries(savedSprites)) {
+    // Update the character set mapping for this custom sprite
+    const s = <Sprite>sprite;
+    CharacterSet.get("simea").set(s.name, Promise.resolve(s));
+
+    renderCustomCharacter(savedSpritesDiv, filename, s);
+    const thisRadio = document.getElementById(`simea-replacement-${s.name}`);
+    const r = <HTMLInputElement>thisRadio;
+    r.addEventListener('change', (e) => {
+      window['localStorage'].setItem('simea-replacement', (e.target as HTMLInputElement).value);
+    });
+    if (r.value == selectedSimeaSprite) {
+      r.checked = true;
+    }
+  }
+}

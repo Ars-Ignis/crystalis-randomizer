@@ -3,7 +3,8 @@ import {Module} from '../asm/module';
 import {Entity, EntityArray} from './entity';
 import {MessageId} from './messageid';
 import {hex, readString, tuple,
-  ITEM_USE_FLAGS, ITEM_CONDITION_FLAGS, relocExportLabel} from './util.js';
+  ITEM_USE_FLAGS, ITEM_CONDITION_FLAGS, relocExportLabel, free, exportValue
+} from './util.js';
 import {Address, Data, Segment} from './util';
 import {Rom} from '../rom';
 import {assertNever} from '../util';
@@ -37,6 +38,7 @@ interface ItemOptions {
   weight?: number;
   // address (within segment 0e) of the value specifying how much to heal.
   valueAddr?: number;
+  valueName?: string; // name for exporting
 }
 
 // An item; note that some tables go up to $49 or even $4a - these can bbe ignored
@@ -56,7 +58,7 @@ export class Item extends Entity {
   trades: number[];
   use: boolean;
 
-  valueAddr?: Address;
+  valueName?: string;
   value?: number;
 
   // Weight for shuffling - higher numbers will be placed earlier.
@@ -70,9 +72,8 @@ export class Item extends Entity {
     this.trades = opts.trades || [];
     this.use = opts.use || false;
     this.weight = opts.weight || 1;
-    this.valueAddr =
-        opts.valueAddr != null ? Address.of($0e, opts.valueAddr) : undefined;
-    if (this.valueAddr != null) this.value = this.valueAddr.read(rom.prg);
+    this.valueName = opts.valueName;
+    if (opts.valueAddr != null) this.value = Address.of($0e, opts.valueAddr).read(rom.prg);
 
     if (this.use) {
       this.itemUseJump =
@@ -209,16 +210,14 @@ export class Item extends Entity {
       a.word(usePtr);
     }
 
-    if (this.valueAddr) {
-      this.valueAddr.loc(a, `ItemValue_${id}`);
-      a.byte(this.value!);
+    if (this.valueName) {
+      exportValue(a, this.valueName, this.value || 0);
     }
 
     // If Aryllis wants this then set it as the item that requires change
     if (this.itemUseData.some(u => u.tradeNpc() === this.rom.npcs.Aryllis.id)) {
-      a.segment('fe');
-      a.org(0xd4b5); // hard-coded check in otherwise-untouched assembly code
-      a.byte(this.id - 0x1c); // equipped item id
+      a.assign('ARYLLIS_WANT', this.id);
+      a.export('ARYLLIS_WANT');
     }
 
     // writer.write([...stringToBytes(this.messageName), 0],
@@ -380,12 +379,14 @@ export class Items extends EntityArray<Item> {
   // Consumables
   readonly MedicalHerb      = new Item(this, 0x1d, {use: true,
                                                     trades: [0],
-                                                    valueAddr: 0x84ea});
+                                                    valueAddr: 0x84ea,
+                                                    valueName: 'itemValueMedicalHerb'});
   readonly Antidote         = new Item(this, 0x1e, {use: true});
   readonly LysisPlant       = new Item(this, 0x1f, {use: true});
   readonly FruitOfLime      = new Item(this, 0x20, {use: true});
   readonly FruitOfPower     = new Item(this, 0x21, {use: true,
-                                                    valueAddr: 0x850c});
+                                                    valueAddr: 0x850c,
+                                                    valueName: 'itemValueFruitOfPower'});
   readonly MagicRing        = new Item(this, 0x22, {use: true});
   readonly FruitOfRepun     = new Item(this, 0x23, {use: true});
   readonly WarpBoots        = new Item(this, 0x24, {use: true});
@@ -440,6 +441,12 @@ export class Items extends EntityArray<Item> {
 
   write(): Module[] {
     const a = this.rom.assembler();
+    // ItemGetData (to 1e065) + ItemUseData
+    free(a, $0e, 0x9de6, 0xa000);
+    free(a, $0f, 0xa000, 0xa106);
+    // ItemMenuName
+    free(a, $10, 0x911a, 0x9468);
+
     ARMOR_DEFENSE_TABLE.loc(a);
     a.byte(...this.armorDefense);
     SHIELD_DEFENSE_TABLE.loc(a);
@@ -451,7 +458,7 @@ export class Items extends EntityArray<Item> {
       item.assemble(a);
       if (item.unique) uniqueTable[item.id >>> 3] |= (1 << (item.id & 7));
     }
-    relocExportLabel(a, [$0e, $0f], 'KeyItemData');
+    relocExportLabel(a, 'KeyItemData', [$0e, $0f]);
     a.byte(...uniqueTable);
     return [a.module()];
   }
