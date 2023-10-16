@@ -162,6 +162,43 @@ function patchGraphics(rom: Uint8Array, sprites: Sprite[]) {
   }
 }
 
+export function onlyPreShuffle(rom: Uint8Array,
+                              seed: number,
+                              originalFlags: FlagSet,
+                              log?: {spoiler?: Spoiler},
+                            ):  readonly [Rom, FlagSet, World] {
+  // Trim overdumps (main.js already does this, but there are other entrypoints)
+  const expectedSize =
+      16 + (rom[6] & 4 ? 512 : 0) + (rom[4] << 14) + (rom[5] << 13);
+  if (rom.length > expectedSize) rom = rom.slice(0, expectedSize);
+
+  //rom = watchArray(rom, 0x85fa + 0x10);
+  if (EXPAND_PRG && rom.length < 0x80000) {
+    if (rom.length < 0x80000) {
+        const newRom = new Uint8Array(rom.length + 0x40000);
+        newRom.subarray(0, 0x40010).set(rom.subarray(0, 0x40010));
+        newRom.subarray(0x80010).set(rom.subarray(0x40010));
+        newRom[4] <<= 1;
+        rom = newRom;
+    }
+
+    const prg = rom.subarray(0x10);
+    // const src = smudge(await reader.read('crystalis.s'), Cpu.P02, prg);
+    // const assembled = Linker.assemble(src);
+    // prg.subarray(0, assembled.length).set(assembled);
+    prg.subarray(0x7c000, 0x80000).set(prg.subarray(0x3c000, 0x40000));
+  }
+
+  deterministicPreParse(rom.subarray(0x10)); // TODO - trainer...
+
+  // First reencode the seed, mixing in the flags for security.
+  if (typeof seed !== 'number') throw new Error('Bad seed');
+  const newSeed = crc32(seed.toString(16).padStart(8, '0') + String(originalFlags.filterOptional())) >>> 0;
+  const random = new Random(newSeed);
+  
+  return preItemShuffle(rom, originalFlags, random, log);
+}
+
 export async function shuffle(rom: Uint8Array,
                               seed: number,
                               originalFlags: FlagSet,
@@ -217,8 +254,8 @@ export async function shuffle(rom: Uint8Array,
 export function preItemShuffle(rom: Uint8Array,
                                      originalFlags: FlagSet,
                                      random: Random,
-                                     log: {spoiler?: Spoiler}|undefined,
-                                    ): [Rom, FlagSet]{
+                                     log?: {spoiler?: Spoiler}|undefined,
+                                    ): readonly [Rom, FlagSet, World]{
   const originalFlagString = String(originalFlags);
   const flags = originalFlags.filterRandom(random);
   flags.validate();
@@ -277,14 +314,9 @@ export function preItemShuffle(rom: Uint8Array,
   // NOTE: Shuffle mimics and monsters *after* shuffling maps, but before logic.
   if (flags.shuffleMimics()) shuffleMimics(parsed, flags, random);
   if (flags.shuffleMonsters()) shuffleMonsters(parsed, flags, random);
-  
-  return [parsed, flags];
-}
 
-export function createGraph(parsed: Rom, flags: FlagSet): Graph {
   const world = new World(parsed, flags);
-  const graph = new Graph([world.getLocationList()]);
-  return graph;
+  return [parsed, flags, world];
 }
 
 async function shuffleInternal(rom: Uint8Array,
@@ -293,17 +325,27 @@ async function shuffleInternal(rom: Uint8Array,
                                random: Random,
                                log: {spoiler?: Spoiler}|undefined,
                                progress: ProgressTracker|undefined,
-                               spriteReplacements: Sprite[],
+                               spriteReplacements: Sprite[]|undefined,
                                origPrg: Uint8Array,
                               ): Promise<readonly [Uint8Array, number]>  {
 // (window as any).cave = shuffleCave;
   var parsed: Rom;
   var flags: FlagSet;
-  [parsed, flags] = preItemShuffle(rom, originalFlags, random, log);  
+  var world: World;
+  [parsed, flags, world] = preItemShuffle(rom, originalFlags, random, log);  
 
   // This wants to go as late as possible since we need to pick up
   // all the normalization and other handling that happened before.
-  const graph = createGraph(parsed, flags);
+  parsed = await itemShuffle(parsed, flags, random, world, progress);
+
+  var rom: Uint8Array;
+  var crc: number;
+  [rom, crc] = await postItemShuffle(parsed, flags, random, rom, originalFlags, originalSeed, spriteReplacements, origPrg);
+  return [rom, crc];
+}
+
+export async function itemShuffle(parsed: Rom, flags: FlagSet, random: Random, world: World, progress: ProgressTracker|undefined): Promise<Rom> {
+  const graph = new Graph([world.getLocationList()]);
   if (!flags.noShuffle()) {
     const fill = await graph.shuffle(flags, random, undefined, progress, parsed.spoiler);
     if (fill) {
@@ -328,8 +370,7 @@ async function shuffleInternal(rom: Uint8Array,
       }
       parsed.slots.setCheckCount(fill.size);
     } else {
-      throw new Error(`Shuffle failed`);
-      //return [rom, -1];
+      return parsed;
       //console.error('COULD NOT FILL!');
     }
   }
@@ -338,17 +379,14 @@ async function shuffleInternal(rom: Uint8Array,
   // TODO - set omitItemGetDataSuffix and omitLocalDialogSuffix
   //await shuffleDepgraph(parsed, random, log, flags, progress);
 
-  var rom: Uint8Array;
-  var crc: number;
-  [rom, crc] = await postItemShuffle(parsed, flags, random, rom, originalFlags, originalSeed, spriteReplacements, origPrg);
-  return [rom, crc];
+  return parsed;
 }
 
 export async function postItemShuffle(parsed: Rom, flags: FlagSet, random: Random,
                                 rom: Uint8Array,
                                 originalFlags: FlagSet,
                                 originalSeed: number,
-                                spriteReplacements: Sprite[],
+                                spriteReplacements: Sprite[]|undefined,
                                 origPrg: Uint8Array, ): Promise<readonly [Uint8Array, number]> {
   // TODO - rewrite rescaleShops to take a Rom instead of an array...
   if (flags.shuffleShops()) {

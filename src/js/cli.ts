@@ -10,6 +10,7 @@ import * as patch from './patch';
 import {UsageError, breakLines} from './util';
 import * as version from './version';
 import {disableAsserts} from './assert';
+import * as archipelago from './archipelago';
 
 // Usage: node cli.js [--flags=<FLAGS>] [--seed=<SEED>] rom.nes
 
@@ -35,6 +36,8 @@ Options
                      a seed manually, nor with output patterns
                      that don't include %s or %c.
   --force            Don't fail due to wrong input file checksum.
+  --apPreFill        Run everything up to the point of placing items. 
+                     Used for Archipelago generation.
 
 Flags
   The randomizer supports a number of options, documented in detail
@@ -61,6 +64,7 @@ const main = (...args: string[]) => {
   let seed = '';
   let output = '%n_%c';
   let force = false;
+  let apPreFill = false;
   while (args[0] && args[0].startsWith('--')) {
     let arg = args.shift()!.substring(2);
     let value = undefined;
@@ -84,6 +88,9 @@ const main = (...args: string[]) => {
     } else if (arg == 'force') {
       force = true;
       disableAsserts();
+      if (value != null) args.unshift(value);
+    } else if (arg == 'apPreFill') {
+      apPreFill = true;
       if (value != null) args.unshift(value);
     } else if (arg == 'help') {
       usage(0);
@@ -122,16 +129,30 @@ const main = (...args: string[]) => {
     const s = patch.parseSeed(seed);
     console.log(`Seed: ${s.toString(16)}`);
     const orig = rom.slice();
-    const [shuffled, c] =
-        await patch.shuffle(orig, s, flagset);
-    const n = args[0].replace('.nes', '');
-    const f = String(flagset).replace(/ /g, '');
-    const v = version.VERSION;
-    const filename = fillTemplate(output, {c, n, s, v, f, '%': '%'}) + '.nes';
-    await new Promise(
-        (resolve, reject) => fs.writeFile(
-            filename, shuffled, (err) => err ? reject(err) : resolve('')));
-    console.log(`Wrote ${filename}`);
+    if (!apPreFill){
+        const [shuffled, c] =
+            await patch.shuffle(orig, s, flagset);
+        const n = args[0].replace('.nes', '');
+        const f = String(flagset).replace(/ /g, '');
+        const v = version.VERSION;
+        const filename = fillTemplate(output, {c, n, s, v, f, '%': '%'}) + '.nes';
+        await new Promise(
+            (resolve, reject) => fs.writeFile(
+                filename, shuffled, (err) => err ? reject(err) : resolve('')));
+        console.log(`Wrote ${filename}`);
+    } else {
+        const [log, f] = archipelago.archipelagoPreFill(orig, s, flagset);
+        const n = args[0].replace('.nes', '');
+        const c = 12345678910;
+        const v = version.VERSION;
+        const filenameBase = fillTemplate(output, {c, n, s, v, f, '%': '%'});
+        const worldJSONFilename = filenameBase + "_WORLD.txt";
+        const worldJSON = log.join('');
+        await new Promise(
+            (resolve, reject) => fs.writeFile(
+                worldJSONFilename, worldJSON, (err) => err ? reject(err) : resolve('')));
+        console.log(`Wrote ${worldJSONFilename}`);
+    }
   }));
 };
 
