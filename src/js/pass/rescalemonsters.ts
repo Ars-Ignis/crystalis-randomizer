@@ -2,9 +2,8 @@ import {FlagSet} from '../flagset';
 import {Random} from '../random';
 import {Rom} from '../rom';
 import {seq} from '../rom/util';
-import {ShuffleData} from '../appatch';
 
-export function rescaleMonsters(rom: Rom, flags: FlagSet, random: Random, predetermined?: ShuffleData) {
+export function rescaleMonsters(rom: Rom, flags: FlagSet, random: Random) {
 
   // TODO - find anything sharing the same memory and update them as well
   const unscaledMonsters =
@@ -32,7 +31,7 @@ export function rescaleMonsters(rom: Rom, flags: FlagSet, random: Random, predet
   // Fix Sabera 1's elemental defense to no longer allow thunder
   rom.objects[0x7d].elements |= 0x08;
 
-  const BOSSES = new Set([0x57, 0x5e, 0x68, 0x7d, 0x88, 0x8b, 0x90, 0x93, 0x97, 0x9b, 0x9e, 0xa5]);
+  const BOSSES = new Set([0x57, 0x5e, 0x68, 0x7d, 0x88, 0x97, 0x9b, 0x9e]);
   const SLIMES = new Set([0x50, 0x53, 0x5f, 0x69]);
   for (const [id, {sdef, swrd, hits, satk, dgld, sexp}] of SCALED_MONSTERS) {
     // indicate that this object needs scaling
@@ -54,9 +53,7 @@ export function rescaleMonsters(rom: Rom, flags: FlagSet, random: Random, predet
     o[17] = sexp; // EXP
 
     if (boss ? flags.shuffleBossElements() : flags.shuffleMonsterElements()) {
-      if (boss && predetermined?.bossWeaknesses.has(id)) {
-        rom.objects[id].elements = predetermined.bossWeaknesses.get(id)!;
-      } else if (!SLIMES.has(id)) {
+      if (!SLIMES.has(id)) {
         const bits = [...rom.objects[id].elements.toString(2).padStart(4, '0')];
         random.shuffle(bits);
         rom.objects[id].elements = Number.parseInt(bits.join(''), 2);

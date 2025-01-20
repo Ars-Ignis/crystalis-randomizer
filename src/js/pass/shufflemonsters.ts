@@ -7,7 +7,7 @@ import {Location} from '../rom/location';
 import {Monster} from '../rom/monster';
 import {SCALED_MONSTERS} from './rescalemonsters';
 
-export function shuffleMonsters(rom: Rom, flags: FlagSet, random: Random, fromArchipelago: boolean) {
+export function shuffleMonsters(rom: Rom, flags: FlagSet, random: Random) {
   // TODO: once we have location names, compile a spoiler of shuffled monsters
   const graphics = new Graphics(rom);
   // (window as any).graphics = graphics;
@@ -17,7 +17,7 @@ export function shuffleMonsters(rom: Rom, flags: FlagSet, random: Random, fromAr
   for (const loc of rom.locations) {
     if (loc.used) pool.populate(loc);
   }
-  pool.shuffle(random, graphics, fromArchipelago);
+  pool.shuffle(random, graphics);
   // console.log(`report: ${JSON.stringify(report, null, 2)}`);
 }
 
@@ -93,24 +93,12 @@ class MonsterPool {
     this.monsters.push(...monsters);
   }
 
-  shuffle(random: Random, graphics: Graphics, fromArchipelago: boolean) {
+  shuffle(random: Random, graphics: Graphics) {
     const rom = graphics.rom;
     this.report['pre-shuffle locations'] = this.locations.map(l => l.location.id);
     this.report['pre-shuffle monsters'] = this.monsters.map(m => m.id);
     random.shuffle(this.locations);
     random.shuffle(this.monsters);
-    if (fromArchipelago) {
-        //If coming from Archipelago, make sure Lime Valley is assigned monsters first
-        //so that it always gets a flier.
-        for (let index = 0; index < this.locations.length; index++) {
-            const {location, slots} = this.locations[index];
-            if (location && location.id == 0x42) {
-                this.locations.splice(index, 1);
-                this.locations.splice(0, 0, {location, slots});
-                break;
-            }
-        }
-    }
     this.report['post-shuffle locations'] = this.locations.map(l => l.location.id);
     this.report['post-shuffle monsters'] = this.monsters.map(m => m.id);
     while (this.locations.length) {
@@ -244,10 +232,7 @@ class MonsterPool {
 
       if (flyers && slots.length) {
         // look for an eligible flyer in the first 40.  If it's there, add it first.
-        //If this is an Archipelago seed, force a flier into Lime Valley to make sure
-        //Rage skip works.           
-        for (let i = 0; i < (fromArchipelago && location.id == 0x42 ? 
-            this.monsters.length : Math.min(40, this.monsters.length)); i++) {
+        for (let i = 0; i < Math.min(40, this.monsters.length); i++) {
           if (FLYERS.has(this.monsters[i].id)) {
             if (tryAddMonster(this.monsters[i])) {
               this.monsters.splice(i, 1);

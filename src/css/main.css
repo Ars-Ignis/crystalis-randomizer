@@ -26,9 +26,7 @@
 .if-js-broken,
 .if-js-works,
 .if-spoiled,
-.if-shuffling,
-.if-patch-uploaded,
-.if-patching {
+.if-shuffling {
   display: none;
 }
 
@@ -41,9 +39,7 @@ body.rom-broken .if-rom-broken,
 body.js-broken .if-js-broken,
 body.js-works .if-js-works,
 body.spoiled .if-spoiled,
-body.shuffling .if-shuffling,
-body.patch-uploaded .if-patch-uploaded,
-body.patching .if-patching {
+body.shuffling .if-shuffling {
   /* Note: display: inherit has an interesting effect on the section
      headings that I kind of like. */
   display: block;

@@ -7,7 +7,6 @@ import {Random} from '../random';
 import {Rom} from '../rom';
 import {Metalocation, Pos} from '../rom/metalocation';
 import {ConnectionType} from '../rom/metascreendata';
-import {ShuffleData} from '../appatch';
 
 type Exit = [Metalocation, Pos, ConnectionType];
 type Exit2 = [Metalocation, Pos, ConnectionType,
@@ -60,14 +59,10 @@ function flip(e: Exit2, random: Random) {
   e[3] = undefined;
 }
 
-export function shuffleGoa(rom: Rom, random: Random, predetermined?: ShuffleData) {
+export function shuffleGoa(rom: Rom, random: Random) {
   const $ = rom.locations;
-  let floors = [0, 1, 2, 3];
-  if (predetermined?.goaFloors){
-    floors = predetermined.goaFloors.map(floor => floor[0]);
-  } else {
-    random.shuffle(floors);
-  }
+  const floors = [0, 1, 2, 3];
+  random.shuffle(floors);
 
   const entrances: Exit2[] = [
     [$.GoaFortress_Kelbesque.meta!, 0x83, 'stair:down'],
@@ -91,11 +86,7 @@ export function shuffleGoa(rom: Rom, random: Random, predetermined?: ShuffleData
 
   for (const f of floors) {
     const flexible = up || entrances[f][3] || a[a.length - 1][3];
-    let reverse = flexible ? random.pick([false, true]) : true;
-    if (predetermined?.goaFloors){
-        //just trust that the predetermined did this right
-        reverse = predetermined.goaFloors[a.length - 1][1];
-    }
+    const reverse = flexible ? random.pick([false, true]) : true;
     //console.log(`FLOOR ${f}: up ${up} flexible ${!!flexible} reverse ${reverse}`);
     const lastB: Exit2 = reverse ? exits[f] : entrances[f];
     //console.log(`push b ${rom.locations[lastB[0].id].name}`);
